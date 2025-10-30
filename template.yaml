@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: EME Dish Siting Calculator - Serverless API and Web Interface
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+  
+  DomainName:
+    Type: String
+    Default: ""
+    Description: Custom domain name (optional)
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.9
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+
+Resources:
+  # Lambda Layer for dependencies
+  EMECalculatorLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "eme-calculator-dependencies-${Environment}"
+      Description: Python dependencies for EME Calculator
+      ContentUri: layer/
+      CompatibleRuntimes:
+        - python3.9
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.9
+
+  # Lambda function for calculations
+  EMECalculatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "eme-calculator-${Environment}"
+      CodeUri: lambda/
+      Handler: lambda_function.lambda_handler
+      Layers:
+        - !Ref EMECalculatorLayer
+      Events:
+        CalculateAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref EMECalculatorAPI
+            Path: /calculate
+            Method: post
+        OptionsAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref EMECalculatorAPI
+            Path: /calculate
+            Method: options
+
+  # API Gateway
+  EMECalculatorAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "eme-calculator-api-${Environment}"
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: EME Dish Calculator API
+          version: 1.0.0
+        paths:
+          /calculate:
+            post:
+              summary: Calculate optimal EME dish placement
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required:
+                        - grid_square
+                        - frequency_mhz
+                        - dish_diameter_m
+                        - max_wind_mph
+                      properties:
+                        grid_square:
+                          type: string
+                          pattern: "^[A-Ra-r]{2}[0-9]{2}[A-Xa-x]{2}[0-9]{2}$"
+                          example: "FN12fr46"
+                        frequency_mhz:
+                          type: integer
+                          enum: [144, 432, 902, 1296, 2304, 3456, 5760, 10000, 10368]
+                        dish_diameter_m:
+                          type: number
+                          minimum: 0.5
+                          maximum: 10
+                        max_wind_mph:
+                          type: number
+                          minimum: 10
+                          maximum: 150
+                        elevation_m:
+                          type: number
+                          minimum: 0
+                          maximum: 9000
+                        tree_height_ft:
+                          type: number
+                          minimum: 0
+                          maximum: 300
+                        tree_distance_ft:
+                          type: number
+                          minimum: 10
+                          maximum: 1000
+                        target_regions:
+                          type: array
+                          items:
+                            type: string
+                            enum: ["Europe", "Caribbean", "South America", "Africa", "Asia", "Oceania"]
+              responses:
+                '200':
+                  description: Successful calculation
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                '400':
+                  description: Invalid input
+                '500':
+                  description: Server error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${EMECalculatorFunction.Arn}/invocations"
+            options:
+              summary: CORS preflight
+              responses:
+                '200':
+                  description: CORS headers
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${EMECalculatorFunction.Arn}/invocations"
+
+  # S3 bucket for web hosting
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "eme-calculator-web-${Environment}-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  # S3 bucket policy for public read access
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub "${WebsiteBucket}/*"
+
+  # CloudFront distribution for web hosting
+  WebsiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "EME Calculator Web Interface - ${Environment}"
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        PriceClass: PriceClass_100
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  # Lambda function for deploying web files
+  WebDeployFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "eme-calculator-web-deploy-${Environment}"
+      CodeUri: deploy/
+      Handler: deploy.lambda_handler
+      Timeout: 300
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref WebsiteBucket
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref WebsiteBucket
+          API_ENDPOINT: !Sub "https://${EMECalculatorAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+
+  # Custom resource to deploy web files
+  WebDeployment:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt WebDeployFunction.Arn
+      BucketName: !Ref WebsiteBucket
+      ApiEndpoint: !Sub "https://${EMECalculatorAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${EMECalculatorAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiEndpoint"
+
+  WebsiteURL:
+    Description: Website URL
+    Value: !Sub "https://${WebsiteDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteURL"
+
+  WebsiteBucket:
+    Description: S3 bucket for web hosting
+    Value: !Ref WebsiteBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteBucket"
+
+  CloudFrontDistribution:
+    Description: CloudFront distribution ID
+    Value: !Ref WebsiteDistribution
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDistribution"
