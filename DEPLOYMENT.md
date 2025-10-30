@@ -321,5 +321,5 @@ jobs:
 
 ---
 
-**73 de [YOUR-CALLSIGN]**  
+**73 de K2UA**  
 *Happy EME operations!*

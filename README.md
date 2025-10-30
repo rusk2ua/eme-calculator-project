@@ -156,7 +156,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Create an issue for bug reports or feature requests
 - Join the discussion in the amateur radio EME forums
-- Contact: [your-callsign]@[your-domain].com
+- Contact: k2ua@arrl.net
 
 ---
 

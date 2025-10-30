@@ -333,4 +333,4 @@ Calculate multiple scenarios:
 ---
 
 **Good luck with your EME adventures!**  
-**73 de [YOUR-CALLSIGN]**
+**73 de K2UA**
