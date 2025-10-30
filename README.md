@@ -160,5 +160,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**73 de [YOUR-CALLSIGN]**  
+**73 de K2UA**  
 *Making EME accessible to everyone*
