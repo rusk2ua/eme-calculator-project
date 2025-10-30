@@ -73,7 +73,7 @@ def lambda_handler(event, context):
                 'statusCode': 400,
                 'headers': headers,
                 'body': json.dumps({
-                    'error': 'Invalid grid square format. Expected format: AB12cd34'
+                    'error': 'Invalid grid square format. Expected format: AB12cd (6), AB12cd34 (8), or AB12cd34ef (10) characters'
                 })
             }
         
@@ -148,7 +148,7 @@ def lambda_handler(event, context):
 
 def validate_grid_square(grid):
     """Validate Maidenhead grid square format"""
-    if len(grid) < 6 or len(grid) > 8:
+    if len(grid) < 6 or len(grid) > 10 or len(grid) % 2 != 0:
         return False
     
     # First two characters: A-R
@@ -166,9 +166,15 @@ def validate_grid_square(grid):
                 'A' <= grid[4].upper() <= 'X' and 'A' <= grid[5].upper() <= 'X'):
             return False
     
-    # Last two characters (if present): 0-9
-    if len(grid) == 8:
+    # Next two characters (if present): 0-9
+    if len(grid) >= 8:
         if not (grid[6].isdigit() and grid[7].isdigit()):
+            return False
+    
+    # Last two characters (if present): A-X
+    if len(grid) == 10:
+        if not (grid[8].isalpha() and grid[9].isalpha() and
+                'A' <= grid[8].upper() <= 'X' and 'A' <= grid[9].upper() <= 'X'):
             return False
     
     return True
@@ -178,7 +184,7 @@ if __name__ == "__main__":
     # Test event
     test_event = {
         'body': json.dumps({
-            'grid_square': 'FN12fr46',
+            'grid_square': 'FN12fr46ab',
             'frequency_mhz': 1296,
             'dish_diameter_m': 2.4,
             'tree_height_ft': 80,

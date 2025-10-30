@@ -51,15 +51,20 @@ class EMECalculator:
         lon += int(grid[2]) * 2
         lat += int(grid[3]) * 1
         
-        # Third pair (subsquare)
+        # Third pair (subsquare) - 6 digits minimum
         if len(grid) >= 6:
             lon += (ord(grid[4].upper()) - ord('A')) * (2/24)
             lat += (ord(grid[5].upper()) - ord('A')) * (1/24)
         
-        # Fourth pair (extended square)
+        # Fourth pair (extended square) - 8 digits
         if len(grid) >= 8:
             lon += int(grid[6]) * (2/240)
             lat += int(grid[7]) * (1/240)
+        
+        # Fifth pair (extended subsquare) - 10 digits
+        if len(grid) >= 10:
+            lon += (ord(grid[8].upper()) - ord('A')) * (2/5760)
+            lat += (ord(grid[9].upper()) - ord('A')) * (1/5760)
         
         return lat, lon
     
