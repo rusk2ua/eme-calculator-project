@@ -29,7 +29,7 @@ Visit the deployed calculator at: `https://your-api-gateway-url.amazonaws.com`
 
 ### Local Development
 ```bash
-git clone https://github.com/yourusername/eme-dish-calculator.git
+git clone https://github.com/rusk2ua/eme-dish-calculator.git
 cd eme-dish-calculator
 pip install -r requirements.txt
 python src/eme_calculator.py --grid FN12fr46 --band 1296
