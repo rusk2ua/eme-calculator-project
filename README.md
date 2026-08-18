@@ -55,7 +55,7 @@ python src/eme_calculator.py --grid FN12fr46 --band 1296
 ### Local Setup
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/eme-dish-calculator.git
+git clone https://github.com/rusk2ua/eme-dish-calculator.git
 cd eme-dish-calculator
 
 # Install dependencies
