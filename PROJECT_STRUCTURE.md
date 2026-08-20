@@ -13,10 +13,18 @@ eme-dish-calculator/
 │
 ├── src/                    # Core calculation modules
 │   ├── eme_calculator.py   # Main EME calculator class
-│   └── rf_analysis.py      # Advanced RF analysis
+│   ├── rf_analysis.py      # Advanced RF analysis
+│   └── terrain.py          # Direction-aware terrain/obstruction horizon model
+│
+├── data/
+│   └── site_profiles/      # Site obstruction profiles (JSON)
+│       └── k2ua_fn12fr46wo.json
+│
+├── scripts/
+│   └── generate_polar_plots.py  # Polar az/el plots + monthly az/el tables
 │
 ├── lambda/                 # AWS Lambda function
-│   └── lambda_function.py  # API handler
+│   └── lambda_function.py  # API handler (not yet updated to the terrain model -- see README)
 │
 ├── layer/                  # Lambda layer for dependencies
 │   ├── requirements.txt    # Layer dependencies
@@ -31,14 +39,13 @@ eme-dish-calculator/
 ├── deploy/                 # Deployment automation
 │   └── deploy.py          # Web file deployment Lambda
 │
-├── tests/                  # Test files (future)
-│   ├── test_calculator.py
-│   └── test_rf_analysis.py
+├── tests/
+│   ├── test_terrain.py         # Obstruction geometry sanity checks
+│   └── test_eme_calculator.py  # Pass-counting regression tests
 │
-└── docs/                   # Additional documentation (future)
-    ├── api.md
-    ├── examples/
-    └── images/
+└── docs/
+    ├── plots/                  # Generated polar az/el plot PNGs
+    └── monthly_conditions.md   # Generated monthly peak-condition az/el tables
 ```
 
 ## File Descriptions
@@ -62,6 +69,11 @@ eme-dish-calculator/
   - Link budget calculations
   - Dish size recommendations
   - Tree loss modeling
+- **terrain.py**: Direction-aware obstruction horizon
+  - Site obstruction profile loading (`data/site_profiles/*.json`)
+  - Line-segment and azimuth-arc obstruction geometry
+  - USGS EPQS regional terrain floor (sparse-sampled + interpolated)
+  - Antenna-offset support for "what if I moved the dish" re-runs
 
 ### Lambda Function (`lambda/`)
 - **lambda_function.py**: AWS Lambda handler
@@ -123,8 +135,7 @@ eme-dish-calculator/
 
 ### Testing
 1. **Unit Tests**: `python -m pytest tests/`
-2. **Integration**: `python tests/integration_test.py`
-3. **Manual**: Use web interface with known inputs
+2. **Manual**: Use web interface with known inputs
 
 ### Deployment
 1. **Build Layer**: `cd layer && ./build.sh`
@@ -171,6 +182,8 @@ eme-dish-calculator/
 - **ephem**: Astronomical calculations
 - **boto3**: AWS SDK (Lambda only)
 - **requests**: HTTP client (development)
+- **matplotlib / numpy**: Polar az/el plot generation (`scripts/generate_polar_plots.py`)
+- **pytest**: Test suite (dev/test only)
 
 ### AWS Services
 - **Lambda**: Serverless compute

@@ -26,6 +26,10 @@ venv/
 env/
 ENV/
 
+# Test artifacts
+.pytest_cache/
+.coverage
+
 # AWS SAM
 .aws-sam/
 samconfig.toml
