@@ -128,7 +128,7 @@ eme-dish-calculator/
 ## Development Workflow
 
 ### Local Development
-1. **Setup**: `pip install -r requirements.txt`
+1. **Setup**: `python3 -m venv venv && source venv/bin/activate` (Windows: `venv\Scripts\activate`), then `pip install -r requirements.txt` -- see README's [Virtual Environment Setup](README.md#virtual-environment-setup)
 2. **Test**: `python src/eme_calculator.py --grid FN12fr46 --band 1296`
 3. **Web**: Open `web/index.html` in browser
 4. **API**: `sam local start-api`

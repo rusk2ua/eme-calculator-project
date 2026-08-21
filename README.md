@@ -33,12 +33,18 @@ This calculator helps amateur radio operators determine the best location on the
 Visit the deployed calculator at: `https://your-api-gateway-url.amazonaws.com`
 
 ### Local Development
+Use a virtual environment so the project's dependencies stay isolated from your system Python:
 ```bash
 git clone https://github.com/rusk2ua/eme-dish-calculator.git
 cd eme-dish-calculator
+
+python3 -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+
 pip install -r requirements.txt
 python src/eme_calculator.py --grid FN12fr46 --band 1296
 ```
+The venv only needs creating once. Next time, just `cd` into the project and run `source venv/bin/activate` (or `venv\Scripts\activate` on Windows) again — the dependencies are already installed. Run `deactivate` when you're done. See [Virtual Environment Setup](#virtual-environment-setup) below for more detail, including why `venv/` and `.aws-sam/` never get committed.
 
 ### Analyzing a real site with a directional obstruction profile
 ```bash
@@ -135,19 +141,42 @@ python src/eme_calculator.py --profile data/site_profiles/k2ua_fn12fr46wo.json -
 git clone https://github.com/rusk2ua/eme-dish-calculator.git
 cd eme-dish-calculator
 
-# Install dependencies
+# Create and activate a virtual environment (see Virtual Environment Setup below)
+python3 -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+
+# Install dependencies into the venv
 pip install -r requirements.txt
 
 # Run calculations
 python src/eme_calculator.py --help
 ```
 
+### Virtual Environment Setup
+
+`requirements.txt` installs into whatever Python `pip` currently points at. Without a virtual environment, that's your system (or Homebrew) Python — fine until a second project needs a different version of the same package, or you want to blow everything away and start clean without touching anything else on the machine. A venv sidesteps that: it's a self-contained copy of Python plus whatever gets `pip install`ed into it, isolated from everything else.
+
+```bash
+# One-time setup, from the project root
+python3 -m venv venv
+
+# Every time you start working (new terminal, new session)
+source venv/bin/activate      # Windows: venv\Scripts\activate
+pip install -r requirements.txt   # only needed again if requirements.txt changed
+
+# ... do your work: python src/eme_calculator.py ..., python -m pytest tests/, etc ...
+
+# When done
+deactivate
+```
+
+A `(venv)` prefix on your shell prompt means it's active. `venv/` is already in `.gitignore` — it's a local build artifact, never committed, and safe to delete and recreate (`rm -rf venv && python3 -m venv venv`) any time it gets into a weird state.
+
+**Note on `aws-sam-cli`**: install this one globally (`pip install aws-sam-cli` outside any venv, or `brew install aws-sam-cli` on macOS) rather than inside this project's venv. It's a general-purpose CLI you'll want on your `PATH` across every AWS project, not a dependency of this one — installing it into a per-project venv means `sam` only works while that venv happens to be active, which gets confusing fast.
+
 ### AWS Deployment
 ```bash
-# Install AWS SAM CLI
-pip install aws-sam-cli
-
-# Build and deploy
+# Build and deploy (sam CLI installed globally -- see note above)
 sam build
 sam deploy --guided
 ```

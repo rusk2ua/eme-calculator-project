@@ -16,9 +16,16 @@ This guide covers deploying the EME Dish Calculator to AWS using serverless arch
 git clone https://github.com/yourusername/eme-dish-calculator.git
 cd eme-dish-calculator
 
-# Install dependencies
+# Create and activate a virtual environment (recommended -- keeps
+# these dependencies out of your system Python; see README.md's
+# "Virtual Environment Setup" section for the full explanation)
+python3 -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+
+# Install dependencies into the venv
 pip install -r requirements.txt
 ```
+> Install `aws-sam-cli` separately and globally (not inside this venv) -- it's a CLI tool you'll want on your `PATH` across projects, not a per-project dependency.
 
 ### 2. Build Lambda Layer
 ```bash
@@ -237,6 +244,9 @@ sam deploy --parameter-overrides Environment=dev LogLevel=DEBUG
 
 ### Regular Updates
 ```bash
+# Activate your venv first
+source venv/bin/activate      # Windows: venv\Scripts\activate
+
 # Update dependencies
 pip install -r requirements.txt --upgrade
 
