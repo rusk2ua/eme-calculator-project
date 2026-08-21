@@ -48,6 +48,7 @@ eme-dish-calculator/
 │   └── test_eme_calculator.py  # Pass-counting, degradation-ranking, and pass-track regression tests
 │
 └── docs/
+    ├── SITE_PROFILE_GUIDE.md   # How to build a site profile JSON for your own property (K2UA worked example)
     ├── plots/                  # Generated annual per-region polar scatter plot PNGs
     │   └── monthly_tracks/     # Generated monthly best-day pass track plot PNGs (one per month, all regions overlaid)
     └── monthly_conditions.md   # Generated monthly peak-condition az/el tables
@@ -62,6 +63,9 @@ eme-dish-calculator/
 - **LICENSE**: MIT license for open source distribution
 - **requirements.txt**: Python package dependencies
 - **template.yaml**: AWS SAM infrastructure as code
+
+### Documentation (`docs/`)
+- **SITE_PROFILE_GUIDE.md**: How to build a site profile JSON for your own property — schema field by field, why the polar plots' gray wedge looks the way it does, why moonrise/moonset aren't available at every azimuth, and a full worked example (K2UA, FN12fr46wo)
 
 ### Source Code (`src/`)
 - **eme_calculator.py**: Core EME calculation engine

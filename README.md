@@ -1,26 +1,28 @@
 # EME Dish Siting Calculator
 
-A comprehensive tool for calculating optimal Earth-Moon-Earth (EME) dish placement based on location, frequency band, and environmental factors.
+A tool for amateur radio operators to answer two questions, in order: **where on my property should I put an EME antenna** — given the specific trees, terrain, and obstructions that actually surround it — and **once it's there, at exactly which azimuth and elevation is the Moon actually usable**, band by band, month by month, night by night.
 
 ## Overview
 
-This calculator helps amateur radio operators determine the best location on their property for EME dish installations by analyzing:
+Siting is the primary job. Everything else in this tool exists to support it: you describe your property's real obstructions (tree lines, tree clusters, regional terrain) in a **site profile**, and the calculator turns that into the actual usable azimuth/elevation windows for each target region — not a theoretical flat-horizon estimate, but what your Moon passes really look like once your trees and terrain are accounted for. See the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md) for the full walkthrough and a worked example.
+
+Once a site is modeled, the calculator also analyzes:
 
 - Moon position calculations throughout the year (via PyEphem)
-- Direction-aware terrain and tree-line obstruction modeling
 - Optimal azimuth ranges for target regions, gated by band-specific minimum elevation
+- EME degradation (sky noise + lunar distance) to rank each month's best pass, not just the highest one
 - Wind loading considerations
 - Frequency-specific RF considerations
 
 ## Features
 
-- **Location Input**: Maidenhead grid square, lat/lon coordinates, or a full site obstruction profile (JSON)
+- **Site Profile Modeling**: direction-aware tree lines, tree clusters, and a USGS-elevation-derived regional terrain floor, all described in one JSON file per property — see the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md)
+- **Location Input**: a full site profile (JSON, recommended), or a quicker Maidenhead grid square / lat-lon estimate without one
 - **Multi-band Support**: 144 MHz, 432 MHz, 902 MHz, 1296 MHz, 2304 MHz, 3456 MHz, 5760 MHz, 10 GHz+
 - **Target Regions**: Europe, Caribbean, South America, Africa, Asia, Oceania
-- **Direction-Aware Obstruction Modeling**: tree lines and tree clusters as measured/estimated by the operator, blended with a USGS-elevation-derived regional terrain floor (see [Methodology & Limitations](#methodology--limitations))
 - **Band-Specific Minimum Elevation**: pass counting uses each band's real minimum usable elevation instead of one hardcoded value for every band
 - **"What if I moved the dish" Re-runs**: re-analyze the same site with the antenna offset a given distance east/north, without re-surveying obstructions
-- **Polar Az/El Plots, Monthly Best-Day Track Plots & Monthly Tables**: see [Case Study](#example-case-study-k2ua-station-fn12fr46wo)
+- **Polar Az/El Plots, Monthly Best-Day Track Plots & Monthly Tables**: visualize exactly which azimuth/elevation combinations are usable — see the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md) for a full worked example
 - **Operating Schedule**: Moonrise-to-moonset operating windows
 - **Web Interface**: Easy-to-use calculator with visual results
 - **Serverless Deployment**: AWS Lambda-based backend
@@ -55,7 +57,7 @@ python src/eme_calculator.py \
   --band 1296 --dish-diameter 2.4 --wind-speed 35 \
   --start-date 2026-01-01 --days 365
 ```
-This prints the same kind of summary as above, computed from the real obstruction-modeled site instead of a flat-horizon grid square, plus an EME degradation figure (sky noise + Moon distance, see [Methodology & Limitations](#methodology--limitations)) computed using the site profile's `receiver_noise_figure_db` values -- override with `--noise-figure-db <dB>` if you want to try a different preamp than the one in the profile. For the full monthly-by-region breakdown and the plots, use `scripts/generate_polar_plots.py` (see the [Case Study](#example-case-study-k2ua-station-fn12fr46wo) below) rather than trying to read it out of this command's output.
+This prints the same kind of summary as above, computed from the real obstruction-modeled site instead of a flat-horizon grid square, plus an EME degradation figure (sky noise + Moon distance, see [Methodology & Limitations](#methodology--limitations)) computed using the site profile's `receiver_noise_figure_db` values -- override with `--noise-figure-db <dB>` if you want to try a different preamp than the one in the profile. For the full monthly-by-region breakdown and the plots, use `scripts/generate_polar_plots.py` (see the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md) for a worked example) rather than trying to read it out of this command's output.
 
 ### Reading the CLI output
 
@@ -71,107 +73,19 @@ The full JSON is what `scripts/generate_polar_plots.py` consumes internally to b
 
 Any `--output some_file.json` you save directly in the project root is gitignored (`/*.json` in `.gitignore`, anchored to the root only so it doesn't touch tracked JSON like the site profiles or the sky-noise grid) — safe to leave lying around for your own reference without it turning up in `git status`.
 
-## Example Case Study: K2UA station, FN12fr46wo
+## Site Profile: Modeling Your Own Property
 
-**Location**: FN12fr46wo (42.735913°N, 77.54235°W, 479.7m / 1573.9ft ASL, from USGS EPQS)
-**Band**: 1296 MHz (23cm), min. usable elevation 10°
-**Dish**: 2.4m parabolic, 35mph design wind / 50mph gust rating
+The site profile JSON is how you tell the calculator what's actually blocking your view of the sky, in every direction, from your own patch of ground — see [Features](#features) above for why that's the primary thing this tool does.
 
-### The obstruction survey behind this profile
+Two things about the output are easy to misread if you haven't seen them explained, so they're worth flagging here even though the full explanation lives in the guide:
 
-| Feature | Height | Distance | Bearing | Notes |
-|---|---|---|---|---|
-| West hardwood treeline | 80 ft | 120 ft | 270° (due W), N-S row | At least 800ft long; begins ~200ft north of the due-west line and runs south from there |
-| East pine row | 45 ft | 200 ft | 90° (due E), ~355°-175° tilt | ~350ft long, centered on the antenna's latitude |
-| SE tall pine cluster | ≥70 ft | 150 ft | 120°-140° | |
-| S tall pine cluster | ≥70 ft | 100 ft | 180°-195° | |
-| Far south ridge + hardwoods | 75 ft canopy + measured terrain rise | 500 ft | 150°-210° (South America window) | Overridden by the closer SE/S clusters where they overlap |
+- **The gray wedge on every polar plot is your obstruction horizon** — a direct picture of the tree lines, tree clusters, and regional terrain floor in your site profile, not a rendering artifact or a fixed decoration.
+- **Not every azimuth ever gets a moonrise or moonset, regardless of obstructions** — at any given latitude, the Moon's rise/set azimuth is geometrically bounded (it swings roughly ±18° to ±29° in declination over an 18.6-year cycle), so a real sector of the compass can be permanently below the horizon there no matter how clear the trees are.
 
-Full machine-readable profile: [`data/site_profiles/k2ua_fn12fr46wo.json`](data/site_profiles/k2ua_fn12fr46wo.json).
+**[Read the full Site Profile Guide →](docs/SITE_PROFILE_GUIDE.md)** — the JSON schema field by field, both of the points above explained in detail, and a complete worked example (K2UA station, grid square FN12fr46wo): the obstruction survey, corrected pass counts, all the polar and monthly-track plots, wind loading/RF numbers, EME degradation and receiver noise figure, and "what if I moved the dish" scenarios.
 
-### Corrected annual pass counts (2026 calendar year, 1296 MHz)
-
-| Region | Azimuth window | Annual passes | Avg. peak elevation |
-|---|---|---|---|
-| Europe | 30°-90° | 132 | 30.9° |
-| Caribbean | 120°-180° | 365 | 45.5° |
-| South America | 150°-210° | 365 | 45.5° |
-| Africa | 60°-120° | 222 | 43.2° |
-| Asia | 300°-360° | 0 | — |
-| Oceania | 240°-300° | 162 | 51.4° |
-
-A "pass" is now one calendar day at most, per region — see [Revision History](#revision-history) v2.0.0 for why the old numbers (240/752/499/617) were impossible, and why Caribbean/South America land at 365: at 42.7°N the Moon's daily culmination (its highest point of the day) sits roughly due south nearly every day of the year, comfortably clearing both the 10° band minimum and the local obstruction horizon in that direction almost every night it's up. Asia (300°-360°, roughly NNW-N) is essentially unreachable from this latitude — the Moon's declination range doesn't swing far enough north to rise/set in that sector in most years.
-
-### Polar az/el plots — range of possible passes
-
-Elevation is the radius (zenith at center, horizon at the rim); azimuth is the angle (N at top, clockwise). The gray band is the local obstruction horizon; dots are every qualifying day's peak-elevation Moon position, colored by month. The black-outlined star in each region is that month's single **best** day — lowest EME degradation (sky noise + Moon distance), not necessarily the highest dot — the same day listed in that region's row of the monthly table below.
-
-| | |
-|---|---|
-| ![Europe](docs/plots/europe_polar.png) | ![Caribbean](docs/plots/caribbean_polar.png) |
-| ![South America](docs/plots/south_america_polar.png) | ![Africa](docs/plots/africa_polar.png) |
-| ![Oceania](docs/plots/oceania_polar.png) | ![Asia](docs/plots/asia_polar.png) |
-
-Regenerate these with:
-```bash
-python scripts/generate_polar_plots.py \
-  --profile data/site_profiles/k2ua_fn12fr46wo.json \
-  --band 1296 --start-date 2026-01-01 --days 365 \
-  --out-dir docs/plots --tables-out docs/monthly_conditions.md
-```
-
-### Monthly peak-condition az/el tables
-
-Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_conditions.md). Each row is the single best (**lowest EME degradation** — sky noise + Moon distance, not simply highest elevation, see [Methodology & Limitations](#methodology--limitations)) qualifying pass that month. Two different az/el ranges are reported — see the note below the table — Caribbean excerpt (23cm, 0.25dB noise figure):
-
-| Month | Best date | Degradation (dB) | Peak Az | Peak El | Pass Az sweep | Pass El sweep | Peak Az day-to-day spread | Peak El day-to-day spread | Qualifying days |
-|---|---|---|---|---|---|---|---|---|---|
-| Jan | 2026-01-03 | 0.14 | 176.5° | 71.5° | 122.7°-176.5° | 62.2°-71.5° | 172.5°-180.0° | 18.2°-75.2° | 31 |
-| Jun | 2026-06-12 | 0.00 | 177.6° | 68.1° | 122.0°-177.6° | 56.3°-68.1° | 172.6°-179.8° | 18.5°-74.7° | 30 |
-| Dec | 2026-12-25 | 0.00 | 178.2° | 66.8° | 122.8°-178.2° | 56.1°-66.8° | 172.9°-179.7° | 18.8°-74.5° | 31 |
-
-**Pass Az/El sweep** is how far the Moon actually moves *during that one best day's pass* through this region's window — real tens-of-degrees movement, as you'd expect from rise to peak to set. **Peak Az/El day-to-day spread** is a different thing: how much just the peak *instant* (one point per day) drifts from one qualifying day to the next across the whole month — necessarily much narrower, since a region's peak tends to land at a similar azimuth night after night. Earlier versions of this table had a single ambiguous "Az/El range" column that was actually the day-to-day spread, which reads very oddly if you assume it's the in-pass sweep (that's ~130 degrees of azimuth typical for a full rise-to-set track, not the 5-8 degrees the old column showed) — see Revision History v2.2.0.
-
-### Monthly best-day pass track plots — what the single best pass actually looks like
-
-The plots above answer "what's the overall shape of the year for one region"; these answer "what does the single best pass actually look like, in real time." One chart per calendar month, every region overlaid, showing **only** that month's single lowest-degradation day's actual track — the real, connected az/el path the Moon travels from the moment it enters that region's window to the moment it leaves, not a scatter of many days. A star marks the peak (lowest-degradation) point; triangles mark the start (▲) and end (▽) of the track. Because several regions' windows genuinely overlap at this latitude (e.g. Caribbean/South America share 150°-180°) their best-day peaks often land close together on the chart, so each region's name + start/peak/end elevation labels live at a fixed position around the outside of the circle with a thin leader line back to its track, rather than floating next to the point itself — that keeps every label readable no matter how tightly the tracks cluster. January is shown below as an example:
-
-![Monthly best-day pass tracks — January](docs/plots/monthly_tracks/01_january.png)
-
-The full set of 12 (one per month) is in [`docs/plots/monthly_tracks/`](docs/plots/monthly_tracks). Regenerate with:
-```bash
-python scripts/generate_monthly_track_plots.py \
-  --profile data/site_profiles/k2ua_fn12fr46wo.json \
-  --band 1296 --start-date 2026-01-01 --days 365 \
-  --out-dir docs/plots/monthly_tracks
-```
-This is a separate, additive script from `generate_polar_plots.py` above — it doesn't touch or replace the annual per-region scatter plots or `docs/monthly_conditions.md`.
-
-### Wind loading and RF
-
-- **Wind loading**: 152.5 lbf @ 35mph design wind, 311.2 lbf @ 50mph gusts (the original case study's "112 lbf @ 35mph" didn't actually match the tool's own formula — see Revision History v2.0.0)
-- **23cm antenna gain / beamwidth** (2.4m dish, 60% efficiency): 28.1 dBi / 6.7°
-- **Worst-case vegetation loss**: looking through the west hardwood treeline at low elevation (80ft trees, 120ft away) costs up to 40 dB (the model's cap) at 1296 MHz — exactly why the terrain-aware pass count excludes that azimuth/elevation combination rather than trying to estimate a loss for it
-
-### EME degradation and receiver noise figure
-
-Every qualifying pass now also carries an EME degradation figure in dB — 0 dB is the best achievable sky-noise + Moon-distance conditions for the selected band and receiver, higher is worse — computed from where the Moon sits relative to the galactic plane/center that day and how close it is to perigee. This is what drives the "best date" pick in the tables and the star markers on the plots above; see [Methodology & Limitations](#methodology--limitations) for the model and its sourcing.
-
-It depends on the receiver's noise figure (NF, dB, at the antenna feedpoint), which this profile sets from the operator's actual station values — 0.5dB at 144/432, 0.25dB at 1296, 0.4dB at 2304, 0.9dB at 10368 (see `receiver_noise_figure_db` in [`k2ua_fn12fr46wo.json`](data/site_profiles/k2ua_fn12fr46wo.json)). Bands not in that list (902, 3456, 5760) fall back to the generic `DEFAULT_NOISE_FIGURE_DB_BY_BAND` placeholder table in `eme_calculator.py`. Override any of these per run with `--noise-figure-db <dB>`.
-
-### "What if" re-runs — same site, different settings
-
-| Scenario | Europe | Caribbean | S. America | Africa | Asia | Oceania |
-|---|---|---|---|---|---|---|
-| 1296 MHz, dish at surveyed spot (baseline) | 132 | 365 | 365 | 222 | 0 | 162 |
-| 2304 MHz (13cm), same spot — min. elevation rises to 15° | 123 | 365 | 365 | 210 | 0 | 162 |
-| 1296 MHz, dish moved 100ft **west** | 136 | 365 | 365 | 226 | 0 | **0** |
-
-Moving the dish 100ft west closes the distance to the west hardwoods from 120ft to 20ft (atan(80/20) = 76° blockage) and wipes out Oceania entirely — a good demonstration of why "just move it a bit" needs to be checked, not assumed. Reproduce these with:
-```bash
-python src/eme_calculator.py --profile data/site_profiles/k2ua_fn12fr46wo.json --band 2304 --start-date 2026-01-01
-python src/eme_calculator.py --profile data/site_profiles/k2ua_fn12fr46wo.json --offset-east-ft -100 --start-date 2026-01-01
-```
+![Monthly best-day pass tracks — January, K2UA FN12fr46wo](docs/plots/monthly_tracks/01_january.png)
+*One example from the worked example's monthly best-day pass track plots — see the guide for the full set and what everything on it means.*
 
 ## Installation & Deployment
 
@@ -287,13 +201,9 @@ curl -X POST https://your-api.amazonaws.com/calculate \
 
 **Two different "az/el range" figures, not one** (as of v2.2.0): `pass_azimuth_sweep_deg`/`pass_elevation_sweep_deg` is the min/max across every usable sample on the best day specifically — how far the Moon actually moves while it's inside a region's window that day, typically tens of degrees. `peak_azimuth_spread_deg`/`peak_elevation_spread_deg` is a different, much narrower thing: the min/max of just the single peak-elevation instant, one point per qualifying day, across every qualifying day in the month — how much that one moment drifts night to night, not how far any single pass sweeps. An earlier version reported only the day-to-day figure under the ambiguous name "azimuth range," which reads as the in-pass sweep and is off by an order of magnitude from it.
 
-**Terrain/obstruction horizon** (`src/terrain.py`) combines two things: (1) explicit near-field features — tree lines modeled as finite line segments and tree clusters modeled as azimuth arcs, both with a 3° edge taper — and (2) a coarse regional "terrain floor" from 9 USGS National Map Elevation Point Query Service (EPQS) samples (site center + 8 compass octants at 2000ft range), piecewise-linearly interpolated by azimuth. The near-field features dominate almost everywhere that matters for this site, since a public DEM's 2000ft sample spacing cannot resolve individual tree lines.
+**Terrain/obstruction horizon** (`src/terrain.py`) combines two things: (1) explicit near-field features — tree lines modeled as finite line segments and tree clusters modeled as azimuth arcs, both with a 3° edge taper — and (2) a coarse regional "terrain floor" from 9 USGS National Map Elevation Point Query Service (EPQS) samples (site center + 8 compass octants at 2000ft range), piecewise-linearly interpolated by azimuth. The near-field features generally dominate wherever they're present, since a public DEM's 2000ft sample spacing cannot resolve individual tree lines. See the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md) for the JSON schema, how this becomes the gray wedge on the polar plots, and a full worked example.
 
 **What this is not**: a dense ray-marched horizon profile. A proper one would sample terrain every few meters out to 20-30km on every azimuth. That wasn't feasible from this development environment's network sandbox (only a handful of allowlisted domains are reachable; general internet and the usual DEM tile/API hosts are not) — `fetch_octant_samples()` and `fetch_elevation_ft()` in `terrain.py` are real, working USGS EPQS client code that will run at full resolution wherever this is executed with normal internet access. If you want denser coverage, swap in [py3dep](https://github.com/hyriver/py3dep) (USGS 3DEP, 1-10m resolution over the US), `elevation`/`srtm.py` (SRTM 30-90m, global), or [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (public S3, Terrarium-encoded PNG DEM) — see the module docstring.
-
-**West treeline extent**: originally modeled as an assumed 300ft-each-way symmetric row (unmeasured placeholder); corrected per the operator's field estimate to an asymmetric run — at least 800ft long, starting ~200ft north of the due-west line and extending south from there (`along_line_start_ft`/`along_line_end_ft` in the profile, rather than a symmetric `half_length_ft`). This changed the shape of the obstruction wedge in the polar plots (compare the west/southwest edge to earlier renders) but did not flip any day's pass/no-pass outcome for the current six regions — the azimuths where the two models disagree (150°-200° and 300°-330°) aren't where any region's daily peak sample lands. The row may run further south than the confirmed 800ft; if so, obstruction is understated for the southernmost few degrees of its span. Edit `along_line_start_ft` in the profile if a longer confirmed extent becomes available.
-
-**Tree heights and distances** are field estimates (±10ft on distance, ±5ft on height per the profile's own notes), not a survey. `calculate_tree_blockage()` and the single-direction `calculate_rf_considerations()` tree-loss estimate in `eme_calculator.py` are retained for backward compatibility but only model one direction — prefer a `TerrainProfile` for anything direction-dependent, which is essentially everything in EME siting.
 
 **EME degradation model** (`src/sky_noise.py`) ranks each month's "best day" by lowest degradation instead of highest elevation, as of v2.1.0. It combines two terms into one dB figure, 0 = best achievable for the selected band/receiver:
 
@@ -303,11 +213,11 @@ curl -X POST https://your-api.amazonaws.com/calculate \
 
 This model started from a methodology summary the user supplied (paraphrased from WSJT-X/EME community practice). Two things in that summary didn't hold up against the references above and are corrected here — both explained in detail in the `sky_noise.py` docstring: the formula's sign was backwards (degradation went negative for worse conditions, contradicting its own "0dB=best, higher=worse" description), and the quoted 12-14dB apogee-to-perigee range is actually the sky-noise term's typical swing (real at 144MHz) misattributed to the much smaller (~2.3dB) distance term.
 
-**What the degradation model is not**: an atmospheric/rain-attenuation or elevation-dependent-loss model (those are handled separately by `rf_considerations`' rain-fade estimate and the terrain horizon cutoff), or pixel-accurate galactic noise mapping (see above). The K2UA profile's receiver noise figures are the operator's real station values as of v2.1.1 — see [EME degradation and receiver noise figure](#eme-degradation-and-receiver-noise-figure) — but a band you add to a profile without supplying its own NF still falls back to the generic `DEFAULT_NOISE_FIGURE_DB_BY_BAND` placeholder table.
+**What the degradation model is not**: an atmospheric/rain-attenuation or elevation-dependent-loss model (those are handled separately by `rf_considerations`' rain-fade estimate and the terrain horizon cutoff), or pixel-accurate galactic noise mapping (see above). The K2UA example profile's receiver noise figures are the operator's real station values as of v2.1.1 — see [EME degradation and receiver noise figure](docs/SITE_PROFILE_GUIDE.md#eme-degradation-and-receiver-noise-figure) in the Site Profile Guide — but a band you add to a profile without supplying its own NF still falls back to the generic `DEFAULT_NOISE_FIGURE_DB_BY_BAND` placeholder table.
 
 ## Rerunning for Other Scenarios
 
-Every number in this README is reproducible from the CLI — no code changes needed for a new band, dish size, or antenna position:
+Every number in the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md)'s worked example is reproducible from the CLI — no code changes needed for a new band, dish size, or antenna position:
 
 ```bash
 # Different band, same site
@@ -326,7 +236,7 @@ python scripts/generate_monthly_track_plots.py --profile data/site_profiles/k2ua
   --band 902 --offset-east-ft -100 --out-dir docs/plots_902_west100/monthly_tracks
 ```
 
-To model a different site, copy `data/site_profiles/k2ua_fn12fr46wo.json` and edit the coordinates, `elevation_ft`, and the obstruction lists — or fall back to `--grid` + `--tree-height`/`--tree-distance` for a quick single-direction estimate without a full profile.
+To model your own property, copy `data/site_profiles/k2ua_fn12fr46wo.json` and edit the coordinates, `elevation_ft`, and the obstruction lists — see the [Site Profile Guide](docs/SITE_PROFILE_GUIDE.md) for a field-by-field walkthrough — or fall back to `--grid` + `--tree-height`/`--tree-distance` for a quick single-direction estimate without a full profile.
 
 ## Contributing
 
@@ -359,6 +269,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | **2.2.0** | **2026-08-21** | **Split the ambiguous "azimuth/elevation range" into two correctly-named, independently-computed fields.** The old `month_azimuth_range_deg`/`month_elevation_range_deg` was only ever the day-to-day spread of each day's single peak-elevation instant (typically 5-8° of azimuth) — read naturally, that name implies the full moonrise-to-moonset sweep during one pass, which is routinely 100°+ and is a completely different number. `analyze_eme_opportunities()` now tracks the min/max azimuth and elevation across every usable sample on each day (not just the peak), so `monthly_conditions()` can report both: `pass_azimuth_sweep_deg`/`pass_elevation_sweep_deg` (how far the Moon moves during the best day's actual pass through the region window — tens of degrees) and `peak_azimuth_spread_deg`/`peak_elevation_spread_deg` (the renamed day-to-day figure, unchanged in meaning). `docs/monthly_conditions.md` and the README excerpt gained two columns accordingly. No pass counts, degradation values, or best-day picks changed — this is a reporting-detail addition and rename, not a recalculation. Also fixed a stale Methodology & Limitations sentence still describing the K2UA profile's noise figures as placeholders after v2.1.1 replaced them with real values. Added 1 new test (18 total, all passing). |
 | 2.2.1 | 2026-08-21 | Added `/*.json` to `.gitignore`, anchored to the project root only (leading slash, no directory wildcard) so it catches stray `--output` result dumps left in the repo root without touching tracked JSON that belongs in the repo (`data/site_profiles/*.json`, `data/sky_noise/*.json`). Prompted by a real `--output` file accidentally getting swept into the v2.2.0 commit via `git add -A`, caught and removed before push. Documented in [Reading the CLI Output](#reading-the-cli-output). |
 | **2.3.0** | **2026-08-21** | **Monthly best-day pass track plots.** Added `scripts/generate_monthly_track_plots.py` and `src/eme_calculator.py`'s new `get_pass_track_for_date()` (the ordered, time-sequenced counterpart to `pass_azimuth_sweep_deg`/`pass_elevation_sweep_deg` — the actual sample-by-sample path, not just its min/max). Produces one polar plot per calendar month, all six regions overlaid, showing only that month's single lowest-degradation day's real track as a connected line with the start (▲), peak (★), and end (▽) marked and elevation-labeled — a separate, additive view alongside the existing annual per-region scatter plots (`docs/plots/monthly_tracks/`, `docs/plots/` unchanged). Because several regions' azimuth windows genuinely overlap at this latitude (Caribbean/South America share 150°-180°, Europe/Africa share 60°-90°), their best-day peaks often land close together on the chart; rather than offsetting each label a fixed distance from its own point (which still collided when two regions' points sit next to each other), every region's name + start/peak/end elevation label lives at a fixed position around the outside of the circle with a thin leader line back to its track, so labels never collide regardless of how tightly the underlying tracks cluster. Palette (6-color categorical, validated with the project's dataviz-skill `validate_palette.js` under the strict "all pairs" mode) and marker shapes are shared with no color-alone identity. Added 2 new tests (20 total, all passing). No new dependencies (matplotlib/numpy already required). |
+| **2.4.0** | **2026-08-21** | **Documentation restructure: separated "how the tool works" from "one operator's specific property."** README Overview/Features now lead with the project's actual primary goal — siting an antenna against real obstructions, then finding the usable az/el windows for that placement — instead of burying it under a long worked example. Moved the entire K2UA/FN12fr46wo case study (obstruction survey, corrected pass counts, all plots, wind loading/RF, EME degradation/NF, "what if" re-runs, and the west-treeline field-estimate revision narrative) out of README.md into a new [`docs/SITE_PROFILE_GUIDE.md`](docs/SITE_PROFILE_GUIDE.md), reframed as a general "how to build a site profile for your own property" guide with K2UA as its worked example, plus a field-by-field JSON schema reference. Added two explanations that were previously implicit or scattered: why the polar plots' gray wedge looks the way it does (a direct rendering of `horizon_angle_deg()`, not a fixed decoration), and why moonrise/moonset aren't available at every azimuth regardless of obstructions — a purely astronomical constraint from lunar declination range vs. site latitude, now backed by an actual `ephem` computation over a full 2020-2039 nodal cycle showing the Moon's azimuth (whenever above the horizon at K2UA's latitude) stays within roughly 49°-311°, leaving a permanent ~98°-wide blind sector (WNW through N to NE) that no amount of tree-clearing can open up — the real reason Asia's window returns ~0 passes. README's Methodology & Limitations section kept only the general, site-independent algorithm descriptions; site-specific field notes moved to the new guide. No code changes. |
 
 ## Acknowledgments
 
