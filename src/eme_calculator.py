@@ -229,6 +229,36 @@ class EMECalculator:
 
         return days_out
 
+    def get_pass_track_for_date(self, date: datetime, region: str,
+                                 frequency_mhz: float = 1296) -> List[Dict]:
+        """The full, time-ordered sequence of usable positions for ONE
+        specific day and region -- i.e. the actual pass track from the
+        moment the Moon enters this region's azimuth window (above the
+        band's minimum elevation AND the local terrain horizon) to the
+        moment it leaves, at 10-minute resolution.
+
+        This is the ordered counterpart to the min/max summaries
+        (`pass_azimuth_sweep_deg`/`pass_elevation_sweep_deg` in
+        analyze_eme_opportunities()) -- use this when you need the
+        actual start/peak/end points and the shape of the track between
+        them (e.g. scripts/generate_monthly_track_plots.py), not just
+        the extremes. `date`'s year/month/day are used; a full
+        moonrise-to-moonset day is (re)computed around it, so the exact
+        time-of-day passed in doesn't matter.
+
+        Returns an empty list if the Moon has no qualifying pass through
+        this region on this date (e.g. the date wasn't actually a
+        qualifying day, or `region` isn't in TARGET_REGIONS)."""
+        if region not in self.TARGET_REGIONS:
+            return []
+        min_az, max_az = self.TARGET_REGIONS[region]
+        day_start = datetime(date.year, date.month, date.day)
+        days_out = self.calculate_daily_passes(day_start, frequency_mhz=frequency_mhz, days=1)
+        if not days_out:
+            return []
+        positions = days_out[0]['positions']
+        return [pos for pos in positions if min_az <= pos['azimuth'] <= max_az]
+
     def calculate_moonrise_windows(self, start_date: datetime, days: int = 365) -> List[Dict]:
         """Retained for backward compatibility with existing callers --
         thin wrapper reproducing the original 6-hour/1-hour-step legacy

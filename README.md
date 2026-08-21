@@ -20,7 +20,7 @@ This calculator helps amateur radio operators determine the best location on the
 - **Direction-Aware Obstruction Modeling**: tree lines and tree clusters as measured/estimated by the operator, blended with a USGS-elevation-derived regional terrain floor (see [Methodology & Limitations](#methodology--limitations))
 - **Band-Specific Minimum Elevation**: pass counting uses each band's real minimum usable elevation instead of one hardcoded value for every band
 - **"What if I moved the dish" Re-runs**: re-analyze the same site with the antenna offset a given distance east/north, without re-surveying obstructions
-- **Polar Az/El Plots & Monthly Tables**: see [Case Study](#example-case-study-k2ua-station-fn12fr46wo)
+- **Polar Az/El Plots, Monthly Best-Day Track Plots & Monthly Tables**: see [Case Study](#example-case-study-k2ua-station-fn12fr46wo)
 - **Operating Schedule**: Moonrise-to-moonset operating windows
 - **Web Interface**: Easy-to-use calculator with visual results
 - **Serverless Deployment**: AWS Lambda-based backend
@@ -131,6 +131,21 @@ Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_con
 | Dec | 2026-12-25 | 0.00 | 178.2° | 66.8° | 122.8°-178.2° | 56.1°-66.8° | 172.9°-179.7° | 18.8°-74.5° | 31 |
 
 **Pass Az/El sweep** is how far the Moon actually moves *during that one best day's pass* through this region's window — real tens-of-degrees movement, as you'd expect from rise to peak to set. **Peak Az/El day-to-day spread** is a different thing: how much just the peak *instant* (one point per day) drifts from one qualifying day to the next across the whole month — necessarily much narrower, since a region's peak tends to land at a similar azimuth night after night. Earlier versions of this table had a single ambiguous "Az/El range" column that was actually the day-to-day spread, which reads very oddly if you assume it's the in-pass sweep (that's ~130 degrees of azimuth typical for a full rise-to-set track, not the 5-8 degrees the old column showed) — see Revision History v2.2.0.
+
+### Monthly best-day pass track plots — what the single best pass actually looks like
+
+The plots above answer "what's the overall shape of the year for one region"; these answer "what does the single best pass actually look like, in real time." One chart per calendar month, every region overlaid, showing **only** that month's single lowest-degradation day's actual track — the real, connected az/el path the Moon travels from the moment it enters that region's window to the moment it leaves, not a scatter of many days. A star marks the peak (lowest-degradation) point; triangles mark the start (▲) and end (▽) of the track. Because several regions' windows genuinely overlap at this latitude (e.g. Caribbean/South America share 150°-180°) their best-day peaks often land close together on the chart, so each region's name + start/peak/end elevation labels live at a fixed position around the outside of the circle with a thin leader line back to its track, rather than floating next to the point itself — that keeps every label readable no matter how tightly the tracks cluster. January is shown below as an example:
+
+![Monthly best-day pass tracks — January](docs/plots/monthly_tracks/01_january.png)
+
+The full set of 12 (one per month) is in [`docs/plots/monthly_tracks/`](docs/plots/monthly_tracks). Regenerate with:
+```bash
+python scripts/generate_monthly_track_plots.py \
+  --profile data/site_profiles/k2ua_fn12fr46wo.json \
+  --band 1296 --start-date 2026-01-01 --days 365 \
+  --out-dir docs/plots/monthly_tracks
+```
+This is a separate, additive script from `generate_polar_plots.py` above — it doesn't touch or replace the annual per-region scatter plots or `docs/monthly_conditions.md`.
 
 ### Wind loading and RF
 
@@ -305,6 +320,10 @@ python src/eme_calculator.py --profile data/site_profiles/k2ua_fn12fr46wo.json \
 # Regenerate the polar plots + monthly tables for a scenario
 python scripts/generate_polar_plots.py --profile data/site_profiles/k2ua_fn12fr46wo.json \
   --band 902 --offset-east-ft -100 --out-dir docs/plots_902_west100
+
+# Regenerate the monthly best-day pass track plots for a scenario
+python scripts/generate_monthly_track_plots.py --profile data/site_profiles/k2ua_fn12fr46wo.json \
+  --band 902 --offset-east-ft -100 --out-dir docs/plots_902_west100/monthly_tracks
 ```
 
 To model a different site, copy `data/site_profiles/k2ua_fn12fr46wo.json` and edit the coordinates, `elevation_ft`, and the obstruction lists — or fall back to `--grid` + `--tree-height`/`--tree-distance` for a quick single-direction estimate without a full profile.
@@ -339,6 +358,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | 2.1.1 | 2026-08-21 | Replaced the v2.1.0 placeholder receiver noise figures in the K2UA profile with the operator's real station values: 0.5dB at 144/432 MHz, 0.25dB at 1296 MHz, 0.4dB at 2304 MHz, 0.9dB at 10368 MHz. Fixed a display rounding issue where 0.25dB printed as "0.2 dB" (Python's `.1f` uses round-half-to-even); noise-figure display now uses two decimal places throughout. Regenerated the case study's plots, `docs/monthly_conditions.md`, and README excerpt with the real values — degradation figures shifted slightly (e.g. Caribbean's avg. degradation 1.5dB→1.7dB at 1296 MHz); no region's annual pass count or any month's best-date pick changed. |
 | **2.2.0** | **2026-08-21** | **Split the ambiguous "azimuth/elevation range" into two correctly-named, independently-computed fields.** The old `month_azimuth_range_deg`/`month_elevation_range_deg` was only ever the day-to-day spread of each day's single peak-elevation instant (typically 5-8° of azimuth) — read naturally, that name implies the full moonrise-to-moonset sweep during one pass, which is routinely 100°+ and is a completely different number. `analyze_eme_opportunities()` now tracks the min/max azimuth and elevation across every usable sample on each day (not just the peak), so `monthly_conditions()` can report both: `pass_azimuth_sweep_deg`/`pass_elevation_sweep_deg` (how far the Moon moves during the best day's actual pass through the region window — tens of degrees) and `peak_azimuth_spread_deg`/`peak_elevation_spread_deg` (the renamed day-to-day figure, unchanged in meaning). `docs/monthly_conditions.md` and the README excerpt gained two columns accordingly. No pass counts, degradation values, or best-day picks changed — this is a reporting-detail addition and rename, not a recalculation. Also fixed a stale Methodology & Limitations sentence still describing the K2UA profile's noise figures as placeholders after v2.1.1 replaced them with real values. Added 1 new test (18 total, all passing). |
 | 2.2.1 | 2026-08-21 | Added `/*.json` to `.gitignore`, anchored to the project root only (leading slash, no directory wildcard) so it catches stray `--output` result dumps left in the repo root without touching tracked JSON that belongs in the repo (`data/site_profiles/*.json`, `data/sky_noise/*.json`). Prompted by a real `--output` file accidentally getting swept into the v2.2.0 commit via `git add -A`, caught and removed before push. Documented in [Reading the CLI Output](#reading-the-cli-output). |
+| **2.3.0** | **2026-08-21** | **Monthly best-day pass track plots.** Added `scripts/generate_monthly_track_plots.py` and `src/eme_calculator.py`'s new `get_pass_track_for_date()` (the ordered, time-sequenced counterpart to `pass_azimuth_sweep_deg`/`pass_elevation_sweep_deg` — the actual sample-by-sample path, not just its min/max). Produces one polar plot per calendar month, all six regions overlaid, showing only that month's single lowest-degradation day's real track as a connected line with the start (▲), peak (★), and end (▽) marked and elevation-labeled — a separate, additive view alongside the existing annual per-region scatter plots (`docs/plots/monthly_tracks/`, `docs/plots/` unchanged). Because several regions' azimuth windows genuinely overlap at this latitude (Caribbean/South America share 150°-180°, Europe/Africa share 60°-90°), their best-day peaks often land close together on the chart; rather than offsetting each label a fixed distance from its own point (which still collided when two regions' points sit next to each other), every region's name + start/peak/end elevation label lives at a fixed position around the outside of the circle with a thin leader line back to its track, so labels never collide regardless of how tightly the underlying tracks cluster. Palette (6-color categorical, validated with the project's dataviz-skill `validate_palette.js` under the strict "all pairs" mode) and marker shapes are shared with no color-alone identity. Added 2 new tests (20 total, all passing). No new dependencies (matplotlib/numpy already required). |
 
 ## Acknowledgments
 

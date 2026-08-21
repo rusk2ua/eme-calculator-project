@@ -190,6 +190,63 @@ def test_pass_sweep_is_within_region_window_and_wider_than_peak_spread(result_90
             assert 'peak_elevation_spread_deg' in info
 
 
+def test_pass_track_matches_the_sweep_it_summarizes(result_90days):
+    # get_pass_track_for_date() is the ordered counterpart to
+    # pass_azimuth_sweep_deg/pass_elevation_sweep_deg -- its first/last
+    # samples must equal the sweep's bounds and its highest-elevation
+    # sample must be the same peak monthly_conditions() records, since
+    # scripts/generate_monthly_track_plots.py relies on all three lining
+    # up for the same best day.
+    opportunities, _ = result_90days
+    terrain = TerrainProfile(PROFILE_PATH)
+    calc = EMECalculator(terrain_profile=terrain)
+    calc.setup_observer(terrain.latitude, terrain.longitude, terrain.elevation_ft * 0.3048)
+    monthly = calc.monthly_conditions(opportunities)
+
+    for region in EMECalculator.TARGET_REGIONS:
+        for month, info in monthly[region].items():
+            best_date = datetime.strptime(info['best_date'], '%Y-%m-%d')
+            track = calc.get_pass_track_for_date(best_date, region, frequency_mhz=1296)
+            assert len(track) >= 1, (
+                f"{region} {info['best_date']}: monthly_conditions() reports this "
+                f"as a qualifying best day, so its track must not be empty"
+            )
+
+            az_lo, az_hi = info['pass_azimuth_sweep_deg']
+            el_lo, el_hi = info['pass_elevation_sweep_deg']
+            track_azimuths = [p['azimuth'] for p in track]
+            track_elevations = [p['elevation'] for p in track]
+
+            assert min(track_azimuths) == pytest.approx(az_lo, abs=1e-6)
+            assert max(track_azimuths) == pytest.approx(az_hi, abs=1e-6)
+            assert min(track_elevations) == pytest.approx(el_lo, abs=1e-6)
+            assert max(track_elevations) == pytest.approx(el_hi, abs=1e-6)
+
+            peak = track[int(max(range(len(track)), key=lambda i: track_elevations[i]))]
+            assert peak['elevation'] == pytest.approx(info['peak_elevation_deg'], abs=1e-6), (
+                f"{region} {info['best_date']}: the track's highest-elevation "
+                f"sample should be the same peak monthly_conditions() recorded"
+            )
+
+            min_az, max_az = EMECalculator.TARGET_REGIONS[region]
+            for p in track:
+                assert min_az - 1e-6 <= p['azimuth'] <= max_az + 1e-6
+
+
+def test_pass_track_for_unqualifying_date_or_unknown_region_is_empty():
+    terrain = TerrainProfile(PROFILE_PATH)
+    calc = EMECalculator(terrain_profile=terrain)
+    calc.setup_observer(terrain.latitude, terrain.longitude, terrain.elevation_ft * 0.3048)
+
+    assert calc.get_pass_track_for_date(datetime(2026, 1, 3), 'Not A Real Region') == []
+
+    # A date the Moon never crosses a given region's azimuth window at all
+    # (e.g. Europe's 30-90deg window on a day the Moon stays well south of
+    # it) should come back empty, not raise.
+    track = calc.get_pass_track_for_date(datetime(2026, 6, 15), 'Asia', frequency_mhz=1296)
+    assert isinstance(track, list)
+
+
 def test_degradation_is_zero_at_best_case_and_positive_otherwise():
     import sky_noise
     best_db, _ = sky_noise.degradation_db(

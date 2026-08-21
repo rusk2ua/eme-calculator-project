@@ -24,7 +24,8 @@ eme-dish-calculator/
 │       └── galactic_408mhz_grid.json  # Synthesized 408MHz galactic-noise lookup grid
 │
 ├── scripts/
-│   └── generate_polar_plots.py  # Polar az/el plots + monthly az/el tables
+│   ├── generate_polar_plots.py         # Annual per-region polar scatter plots + monthly az/el tables
+│   └── generate_monthly_track_plots.py # One plot/month: every region's single best-day pass track
 │
 ├── lambda/                 # AWS Lambda function
 │   └── lambda_function.py  # API handler (not yet updated to the terrain model -- see README)
@@ -44,10 +45,11 @@ eme-dish-calculator/
 │
 ├── tests/
 │   ├── test_terrain.py         # Obstruction geometry sanity checks
-│   └── test_eme_calculator.py  # Pass-counting regression tests
+│   └── test_eme_calculator.py  # Pass-counting, degradation-ranking, and pass-track regression tests
 │
 └── docs/
-    ├── plots/                  # Generated polar az/el plot PNGs
+    ├── plots/                  # Generated annual per-region polar scatter plot PNGs
+    │   └── monthly_tracks/     # Generated monthly best-day pass track plot PNGs (one per month, all regions overlaid)
     └── monthly_conditions.md   # Generated monthly peak-condition az/el tables
 ```
 
@@ -190,7 +192,7 @@ eme-dish-calculator/
 - **ephem**: Astronomical calculations
 - **boto3**: AWS SDK (Lambda only)
 - **requests**: HTTP client (development)
-- **matplotlib / numpy**: Polar az/el plot generation (`scripts/generate_polar_plots.py`)
+- **matplotlib / numpy**: Polar az/el plot generation (`scripts/generate_polar_plots.py`, `scripts/generate_monthly_track_plots.py`)
 - **pytest**: Test suite (dev/test only)
 
 ### AWS Services
