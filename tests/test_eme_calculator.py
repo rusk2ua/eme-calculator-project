@@ -151,6 +151,45 @@ def test_noise_figure_lookup_priority_override_then_profile_then_default():
     assert calc.noise_figure_db_for_band(1296) == 0.42
 
 
+def test_pass_sweep_is_within_region_window_and_wider_than_peak_spread(result_90days):
+    # Regression test for the "monthly azimuth range" confusion: the
+    # per-pass sweep (how far the Moon actually moves during one day's
+    # pass through a region's window) is a different, generally WIDER
+    # quantity than the day-to-day spread of just the peak instant across
+    # a month -- they must not be conflated or reported under one name.
+    opportunities, _ = result_90days
+    calc = EMECalculator()
+    for region, (min_az, max_az) in EMECalculator.TARGET_REGIONS.items():
+        passes = opportunities[region]
+        for p in passes:
+            az_lo, az_hi = p['pass_azimuth_sweep_deg']
+            el_lo, el_hi = p['pass_elevation_sweep_deg']
+            assert min_az - 1e-6 <= az_lo <= az_hi <= max_az + 1e-6, (
+                f"{region} {p['date']}: pass azimuth sweep {az_lo}-{az_hi} "
+                f"falls outside the region's window {min_az}-{max_az}"
+            )
+            # The peak sample (used elsewhere as 'azimuth'/'elevation')
+            # must itself lie within the sweep it was drawn from.
+            assert az_lo - 1e-6 <= p['azimuth'] <= az_hi + 1e-6
+            assert el_lo - 1e-6 <= p['elevation'] <= el_hi + 1e-6
+            assert el_hi == pytest.approx(p['elevation']), (
+                "the peak (highest-elevation) sample's elevation should "
+                "equal the sweep's el_max by construction"
+            )
+
+    monthly = calc.monthly_conditions(opportunities)
+    for region, months in monthly.items():
+        for month, info in months.items():
+            # The old ambiguously-named keys must be gone, replaced by
+            # the two distinctly-named, independently computed fields.
+            assert 'month_azimuth_range_deg' not in info
+            assert 'month_elevation_range_deg' not in info
+            assert 'pass_azimuth_sweep_deg' in info
+            assert 'pass_elevation_sweep_deg' in info
+            assert 'peak_azimuth_spread_deg' in info
+            assert 'peak_elevation_spread_deg' in info
+
+
 def test_degradation_is_zero_at_best_case_and_positive_otherwise():
     import sky_noise
     best_db, _ = sky_noise.degradation_db(

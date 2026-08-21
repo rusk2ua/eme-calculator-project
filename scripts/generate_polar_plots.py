@@ -153,22 +153,33 @@ def format_monthly_table_md(region, monthly, min_elev_deg, noise_figure_db):
         "band/receiver) among that month's qualifying days -- not necessarily the highest "
         "peak elevation.",
         "",
+        "**Pass Az/El sweep** is how far the Moon actually moves during that one best day's "
+        "pass through this region's window (tens of degrees of elevation is typical). "
+        "**Peak Az/El day-to-day spread** is a different thing -- how much the day's peak "
+        "moment alone drifts from one qualifying day to the next across the month; it's "
+        "usually much narrower, since the peak tends to land at a similar azimuth night "
+        "after night.",
+        "",
         "| Month | Best date | Degradation (dB) | Peak Az (deg) | Peak El (deg) | "
-        "Az range (deg) | El range (deg) | Qualifying days |",
-        "|---|---|---|---|---|---|---|---|",
+        "Pass Az sweep (deg) | Pass El sweep (deg) | Peak Az day-to-day spread (deg) | "
+        "Peak El day-to-day spread (deg) | Qualifying days |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for m in range(1, 13):
         info = monthly.get(m)
         if not info:
-            lines.append(f"| {MONTH_ABBR[m-1]} | -- | -- | -- | -- | -- | -- | 0 |")
+            lines.append(f"| {MONTH_ABBR[m-1]} | -- | -- | -- | -- | -- | -- | -- | -- | 0 |")
             continue
-        az_lo, az_hi = info['month_azimuth_range_deg']
-        el_lo, el_hi = info['month_elevation_range_deg']
+        pass_az_lo, pass_az_hi = info['pass_azimuth_sweep_deg']
+        pass_el_lo, pass_el_hi = info['pass_elevation_sweep_deg']
+        spread_az_lo, spread_az_hi = info['peak_azimuth_spread_deg']
+        spread_el_lo, spread_el_hi = info['peak_elevation_spread_deg']
         lines.append(
             f"| {MONTH_ABBR[m-1]} | {info['best_date']} | "
             f"{info['degradation_db']:.2f} | "
             f"{info['peak_azimuth_deg']:.1f} | {info['peak_elevation_deg']:.1f} | "
-            f"{az_lo:.1f}-{az_hi:.1f} | {el_lo:.1f}-{el_hi:.1f} | "
+            f"{pass_az_lo:.1f}-{pass_az_hi:.1f} | {pass_el_lo:.1f}-{pass_el_hi:.1f} | "
+            f"{spread_az_lo:.1f}-{spread_az_hi:.1f} | {spread_el_lo:.1f}-{spread_el_hi:.1f} | "
             f"{info['qualifying_days_in_month']} |"
         )
     lines.append("")

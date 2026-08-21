@@ -287,6 +287,18 @@ class EMECalculator:
         direction and lunar distance. monthly_conditions() uses this to
         rank each month's single best day by lowest degradation rather
         than highest elevation.
+
+        Each pass also carries that SAME day's full azimuth/elevation
+        sweep -- the min/max across every one of that day's samples that
+        both cleared the horizon/min-elevation test AND fell in this
+        region's azimuth window (i.e. everything from when the Moon
+        enters the window to when it leaves, not just the single peak
+        moment). This is the actual "how far does it move during this
+        pass" figure -- typically 5-15 degrees of azimuth and tens of
+        degrees of elevation depending on how much of the pass falls
+        inside the region window, and NOT the same thing as the
+        day-to-day spread of peak positions that monthly_conditions()
+        reports separately.
         """
         if target_regions is None:
             target_regions = list(self.TARGET_REGIONS.keys())
@@ -296,10 +308,14 @@ class EMECalculator:
 
         for day in daily_passes:
             # Track the best (highest-elevation) qualifying sample per
-            # region for THIS day only, so each day yields <=1 pass/region.
+            # region for THIS day only, so each day yields <=1 pass/region,
+            # AND the min/max az/el across every qualifying sample that
+            # day for this region -- the actual single-pass sweep.
             best_by_region: Dict[str, Dict] = {}
+            sweep_by_region: Dict[str, Dict] = {}
             for pos in day['positions']:
                 az = pos['azimuth']
+                el = pos['elevation']
                 for region in target_regions:
                     if region not in self.TARGET_REGIONS:
                         continue
@@ -307,14 +323,26 @@ class EMECalculator:
                     if not (min_az <= az <= max_az):
                         continue
                     current_best = best_by_region.get(region)
-                    if current_best is None or pos['elevation'] > current_best['elevation']:
+                    if current_best is None or el > current_best['elevation']:
                         best_by_region[region] = pos
+
+                    sweep = sweep_by_region.get(region)
+                    if sweep is None:
+                        sweep_by_region[region] = {
+                            'az_min': az, 'az_max': az, 'el_min': el, 'el_max': el,
+                        }
+                    else:
+                        sweep['az_min'] = min(sweep['az_min'], az)
+                        sweep['az_max'] = max(sweep['az_max'], az)
+                        sweep['el_min'] = min(sweep['el_min'], el)
+                        sweep['el_max'] = max(sweep['el_max'], el)
 
             for region, pos in best_by_region.items():
                 deg_db, deg_breakdown = sky_noise.degradation_db(
                     frequency_mhz, pos['gal_lon_deg'], pos['gal_lat_deg'],
                     pos['distance_km'], nf_db
                 )
+                sweep = sweep_by_region[region]
                 region_passes[region].append({
                     'date': day['date'],
                     'moonrise': day['moonrise'],
@@ -327,15 +355,34 @@ class EMECalculator:
                     'sky_temp_k': deg_breakdown['sky_temp_k'],
                     'range_factor_db': deg_breakdown['range_factor_db'],
                     'distance_km': pos['distance_km'],
+                    'pass_azimuth_sweep_deg': (sweep['az_min'], sweep['az_max']),
+                    'pass_elevation_sweep_deg': (sweep['el_min'], sweep['el_max']),
                 })
 
         return region_passes
 
     def monthly_conditions(self, region_passes: Dict[str, List[Dict]]) -> Dict[str, Dict[int, Dict]]:
         """For each region and each calendar month, find the single best
-        qualifying pass and report the azimuth and elevation range the
-        Moon sweeps through during that specific pass ('peak moon
-        conditions' / minimum-degradation window).
+        qualifying pass ('peak moon conditions' / minimum-degradation
+        day) and report two DIFFERENT kinds of azimuth/elevation range
+        for it -- these are easy to conflate, so they get distinct
+        names:
+
+        - pass_azimuth_sweep_deg / pass_elevation_sweep_deg: how far the
+          Moon actually moves DURING that one best day's pass, from when
+          it enters this region's azimuth window (above the local
+          horizon) to when it leaves. This is usually tens of degrees of
+          elevation and single-digit-to-teens degrees of azimuth --
+          NOT the full ~180 deg+ moonrise-to-moonset sweep, since the
+          region window only covers part of the sky and the pass may
+          exit the window (or set) before reaching the far horizon.
+        - peak_azimuth_spread_deg / peak_elevation_spread_deg: how much
+          the day's peak-elevation POINT (a single instant per
+          qualifying day) varies from one qualifying day to the next
+          across the whole month. This is a day-to-day figure, not a
+          within-one-pass figure, and is typically much narrower than
+          the sweep above -- the peak of a given region's pass tends to
+          land at a similar azimuth night after night.
 
         "Best" is the LOWEST EME degradation (dB, see sky_noise.py) --
         i.e. the day the Moon is in the coldest available sky direction
@@ -371,8 +418,10 @@ class EMECalculator:
                     'degradation_db': best['degradation_db'],
                     'sky_temp_k': best['sky_temp_k'],
                     'range_factor_db': best['range_factor_db'],
-                    'month_azimuth_range_deg': (min(azimuths), max(azimuths)),
-                    'month_elevation_range_deg': (min(elevations), max(elevations)),
+                    'pass_azimuth_sweep_deg': best['pass_azimuth_sweep_deg'],
+                    'pass_elevation_sweep_deg': best['pass_elevation_sweep_deg'],
+                    'peak_azimuth_spread_deg': (min(azimuths), max(azimuths)),
+                    'peak_elevation_spread_deg': (min(elevations), max(elevations)),
                     'month_degradation_range_db': (min(degradations), max(degradations)),
                     'qualifying_days_in_month': len(month_passes),
                 }
