@@ -60,11 +60,12 @@
   ],
 
   "receiver_noise_figure_db": {
-    "_meta": "PLACEHOLDER values, at the antenna feedpoint (preamp mounted at the dish, feedline loss after the preamp not modeled) -- generic 'decent preamp' numbers, not measured for this station's actual equipment. Replace with real NF specs/measurements per band for accurate degradation numbers; see README Methodology & Limitations.",
+    "_meta": "Operator-supplied station values, at the antenna feedpoint (preamp mounted at the dish, feedline loss after the preamp not modeled). Supplied 2026-08-21, replacing the earlier generic placeholder table.",
     "144": 0.5,
     "432": 0.5,
-    "1296": 0.7,
-    "2304": 0.9
+    "1296": 0.25,
+    "2304": 0.4,
+    "10368": 0.9
   },
 
   "dem_octant_samples_ft": {

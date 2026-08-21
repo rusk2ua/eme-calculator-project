@@ -498,7 +498,7 @@ def format_summary(results: Dict) -> str:
                       f"{loc['antenna_offset_north_ft']:+.0f}ft N of the profile location")
     lines.append(f"Band: {results['band_mhz']} MHz   "
                   f"Min. usable elevation: {results['min_elevation_deg']:.0f}°   "
-                  f"Rx noise figure: {results.get('noise_figure_db', 0):.1f} dB")
+                  f"Rx noise figure: {results.get('noise_figure_db', 0):.2f} dB")
     lines.append("")
     lines.append("Annual EME opportunities by region (degradation: 0 dB = best-case sky")
     lines.append("noise + Moon distance for this band/receiver, higher = worse):")

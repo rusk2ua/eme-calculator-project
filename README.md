@@ -120,11 +120,11 @@ python scripts/generate_polar_plots.py \
 
 ### Monthly peak-condition az/el tables
 
-Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_conditions.md). Each row is the single best (**lowest EME degradation** — sky noise + Moon distance, not simply highest elevation, see [Methodology & Limitations](#methodology--limitations)) qualifying pass that month, plus the azimuth/elevation range covered by every qualifying pass in that month. Caribbean excerpt (23cm, 0.7dB noise figure):
+Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_conditions.md). Each row is the single best (**lowest EME degradation** — sky noise + Moon distance, not simply highest elevation, see [Methodology & Limitations](#methodology--limitations)) qualifying pass that month, plus the azimuth/elevation range covered by every qualifying pass in that month. Caribbean excerpt (23cm, 0.25dB noise figure):
 
 | Month | Best date | Degradation (dB) | Peak Az | Peak El | Az range | El range | Qualifying days |
 |---|---|---|---|---|---|---|---|
-| Jan | 2026-01-03 | 0.13 | 176.5° | 71.5° | 172.5°-180.0° | 18.2°-75.2° | 31 |
+| Jan | 2026-01-03 | 0.14 | 176.5° | 71.5° | 172.5°-180.0° | 18.2°-75.2° | 31 |
 | Jun | 2026-06-12 | 0.00 | 177.6° | 68.1° | 172.6°-179.8° | 18.5°-74.7° | 30 |
 | Dec | 2026-12-25 | 0.00 | 178.2° | 66.8° | 172.9°-179.7° | 18.8°-74.5° | 31 |
 
@@ -138,7 +138,7 @@ Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_con
 
 Every qualifying pass now also carries an EME degradation figure in dB — 0 dB is the best achievable sky-noise + Moon-distance conditions for the selected band and receiver, higher is worse — computed from where the Moon sits relative to the galactic plane/center that day and how close it is to perigee. This is what drives the "best date" pick in the tables and the star markers on the plots above; see [Methodology & Limitations](#methodology--limitations) for the model and its sourcing.
 
-It depends on the receiver's noise figure (NF, dB, at the antenna feedpoint), which this profile currently sets from **generic placeholder values** (0.5dB at 144/432, 0.7dB at 1296, 0.9dB at 2304 — see `receiver_noise_figure_db` in [`k2ua_fn12fr46wo.json`](data/site_profiles/k2ua_fn12fr46wo.json)), not measured specs for this station's actual preamps. Update that block with real numbers for accurate degradation figures, or override per run with `--noise-figure-db <dB>`.
+It depends on the receiver's noise figure (NF, dB, at the antenna feedpoint), which this profile sets from the operator's actual station values — 0.5dB at 144/432, 0.25dB at 1296, 0.4dB at 2304, 0.9dB at 10368 (see `receiver_noise_figure_db` in [`k2ua_fn12fr46wo.json`](data/site_profiles/k2ua_fn12fr46wo.json)). Bands not in that list (902, 3456, 5760) fall back to the generic `DEFAULT_NOISE_FIGURE_DB_BY_BAND` placeholder table in `eme_calculator.py`. Override any of these per run with `--noise-figure-db <dB>`.
 
 ### "What if" re-runs — same site, different settings
 
@@ -330,6 +330,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | 2.0.2 | 2026-08-20 | Documentation only: local setup instructions (README Quick Start/Local Setup, DEPLOYMENT.md, PROJECT_STRUCTURE.md) now create and activate a Python virtual environment before `pip install`, instead of installing onto the system/Homebrew Python. Added a "Virtual Environment Setup" section to README.md. |
 | 2.0.3 | 2026-08-21 | `src/eme_calculator.py`'s CLI printed a large raw JSON dump to the terminal with no explanation of what it was, which read as broken rather than working as intended. Added `format_summary()` and made it the default terminal output (pass counts, wind loading, RF notes); the full JSON is now opt-in via `--json`, via `--output <file>` (which also still prints the summary), or automatically when stdout is piped/redirected rather than an interactive terminal. See [Reading the CLI Output](#reading-the-cli-output). |
 | **2.1.0** | **2026-08-21** | **EME degradation model.** Added `src/sky_noise.py`: sky (galactic) noise + lunar-distance path loss combined into a single dB degradation figure per pass (0dB = best achievable for the band/receiver). `monthly_conditions()` now ranks each month's "best day" by lowest degradation instead of highest peak elevation. Added `receiver_noise_figure_db` (per-band, at the antenna feedpoint) to the site profile schema, with a `--noise-figure-db` CLI override and generic per-band fallback defaults; seeded the K2UA profile with placeholder values pending real measurements. Corrected two errors found in the user-supplied source methodology during research (see Methodology & Limitations): a backwards degradation sign, and a 12-14dB apogee-to-perigee range-factor figure that was actually sky-noise swing misattributed to the (~2.3dB) distance term. Sky noise uses a synthesized, dependency-free analytic approximation of the galactic 408MHz background (`data/sky_noise/galactic_408mhz_grid.json`) rather than the `pygdsm` package, after evaluating and declining its ~500MB data download and heavy dependency chain (healpy/h5py/astropy/scipy) as disproportionate to this project. Polar plots now star each month's best-degradation day; monthly tables gained a Degradation (dB) column. No new dependencies. |
+| 2.1.1 | 2026-08-21 | Replaced the v2.1.0 placeholder receiver noise figures in the K2UA profile with the operator's real station values: 0.5dB at 144/432 MHz, 0.25dB at 1296 MHz, 0.4dB at 2304 MHz, 0.9dB at 10368 MHz. Fixed a display rounding issue where 0.25dB printed as "0.2 dB" (Python's `.1f` uses round-half-to-even); noise-figure display now uses two decimal places throughout. Regenerated the case study's plots, `docs/monthly_conditions.md`, and README excerpt with the real values — degradation figures shifted slightly (e.g. Caribbean's avg. degradation 1.5dB→1.7dB at 1296 MHz); no region's annual pass count or any month's best-date pick changed. |
 
 ## Acknowledgments
 

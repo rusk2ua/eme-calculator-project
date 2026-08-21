@@ -135,11 +135,18 @@ def test_noise_figure_lookup_priority_override_then_profile_then_default():
     calc = EMECalculator(terrain_profile=terrain)
     # An explicit override always wins.
     assert calc.noise_figure_db_for_band(1296, override=1.23) == 1.23
-    # With no override, and no 'receiver_noise_figure_db' in this profile
-    # yet, it should fall back to the generic per-band default table.
+    # The K2UA profile ships real operator-supplied values -- 1296 should
+    # come from the profile, not the generic per-band default table.
     assert calc.noise_figure_db_for_band(1296) == \
+        terrain.profile['receiver_noise_figure_db']['1296']
+    assert calc.noise_figure_db_for_band(1296) != \
         EMECalculator.DEFAULT_NOISE_FIGURE_DB_BY_BAND[1296]
-    # A profile-supplied value should be used when present.
+    # For a band this profile doesn't list, fall back to the generic table.
+    assert '3456' not in terrain.profile['receiver_noise_figure_db']
+    assert 3456 not in terrain.profile['receiver_noise_figure_db']
+    assert calc.noise_figure_db_for_band(3456) == \
+        EMECalculator.DEFAULT_NOISE_FIGURE_DB_BY_BAND[3456]
+    # Overwriting the profile's value should be picked up.
     terrain.profile['receiver_noise_figure_db'] = {'1296': 0.42}
     assert calc.noise_figure_db_for_band(1296) == 0.42
 

@@ -148,7 +148,7 @@ def format_monthly_table_md(region, monthly, min_elev_deg, noise_figure_db):
     lines = [
         f"### {region}",
         "",
-        f"Rx noise figure used: {noise_figure_db:.1f} dB. \"Best date\" is the day with the "
+        f"Rx noise figure used: {noise_figure_db:.2f} dB. \"Best date\" is the day with the "
         "LOWEST EME degradation (sky noise + Moon distance, 0 dB = best case for this "
         "band/receiver) among that month's qualifying days -- not necessarily the highest "
         "peak elevation.",
@@ -216,7 +216,7 @@ def main():
 
     md_sections = [
         f"# Monthly Peak-Condition Az/El Tables\n",
-        f"Site: {site_label} | Band: {args.band} MHz | Rx noise figure: {noise_figure_db:.1f} dB | "
+        f"Site: {site_label} | Band: {args.band} MHz | Rx noise figure: {noise_figure_db:.2f} dB | "
         f"Antenna offset: {args.offset_east_ft:+.0f}ft E, {args.offset_north_ft:+.0f}ft N\n",
         "Each row is the SINGLE best (lowest EME degradation -- sky noise + Moon "
         "distance, see README Methodology & Limitations) qualifying pass in that "
