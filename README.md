@@ -55,7 +55,7 @@ python src/eme_calculator.py \
   --band 1296 --dish-diameter 2.4 --wind-speed 35 \
   --start-date 2026-01-01 --days 365
 ```
-This prints the same kind of summary as above, computed from the real obstruction-modeled site instead of a flat-horizon grid square. For the full monthly-by-region breakdown and the plots, use `scripts/generate_polar_plots.py` (see the [Case Study](#example-case-study-k2ua-station-fn12fr46wo) below) rather than trying to read it out of this command's output.
+This prints the same kind of summary as above, computed from the real obstruction-modeled site instead of a flat-horizon grid square, plus an EME degradation figure (sky noise + Moon distance, see [Methodology & Limitations](#methodology--limitations)) computed using the site profile's `receiver_noise_figure_db` values -- override with `--noise-figure-db <dB>` if you want to try a different preamp than the one in the profile. For the full monthly-by-region breakdown and the plots, use `scripts/generate_polar_plots.py` (see the [Case Study](#example-case-study-k2ua-station-fn12fr46wo) below) rather than trying to read it out of this command's output.
 
 ### Reading the CLI output
 
@@ -102,7 +102,7 @@ A "pass" is now one calendar day at most, per region — see [Revision History](
 
 ### Polar az/el plots — range of possible passes
 
-Elevation is the radius (zenith at center, horizon at the rim); azimuth is the angle (N at top, clockwise). The gray band is the local obstruction horizon; dots are every qualifying day's peak-elevation Moon position, colored by month.
+Elevation is the radius (zenith at center, horizon at the rim); azimuth is the angle (N at top, clockwise). The gray band is the local obstruction horizon; dots are every qualifying day's peak-elevation Moon position, colored by month. The black-outlined star in each region is that month's single **best** day — lowest EME degradation (sky noise + Moon distance), not necessarily the highest dot — the same day listed in that region's row of the monthly table below.
 
 | | |
 |---|---|
@@ -120,19 +120,25 @@ python scripts/generate_polar_plots.py \
 
 ### Monthly peak-condition az/el tables
 
-Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_conditions.md). Each row is the single best (highest peak-elevation — least atmospheric-absorption and obstruction degradation) qualifying pass that month, plus the azimuth/elevation range covered by every qualifying pass in that month. Caribbean excerpt:
+Full tables for all six regions: [`docs/monthly_conditions.md`](docs/monthly_conditions.md). Each row is the single best (**lowest EME degradation** — sky noise + Moon distance, not simply highest elevation, see [Methodology & Limitations](#methodology--limitations)) qualifying pass that month, plus the azimuth/elevation range covered by every qualifying pass in that month. Caribbean excerpt (23cm, 0.7dB noise figure):
 
-| Month | Best date | Peak Az | Peak El | Az range | El range | Qualifying days |
-|---|---|---|---|---|---|---|
-| Jan | 2026-01-19 | 174.4° | 74.6° | 173.2°-179.5° | 18.8°-74.6° | 31 |
-| Jun | 2026-06-05 | 176.9° | 74.0° | 174.1°-179.9° | 19.4°-74.0° | 30 |
-| Dec | 2026-12-22 | 176.6° | 74.5° | 172.9°-179.7° | 18.8°-74.5° | 31 |
+| Month | Best date | Degradation (dB) | Peak Az | Peak El | Az range | El range | Qualifying days |
+|---|---|---|---|---|---|---|---|
+| Jan | 2026-01-03 | 0.13 | 176.5° | 71.5° | 172.5°-180.0° | 18.2°-75.2° | 31 |
+| Jun | 2026-06-12 | 0.00 | 177.6° | 68.1° | 172.6°-179.8° | 18.5°-74.7° | 30 |
+| Dec | 2026-12-25 | 0.00 | 178.2° | 66.8° | 172.9°-179.7° | 18.8°-74.5° | 31 |
 
 ### Wind loading and RF
 
 - **Wind loading**: 152.5 lbf @ 35mph design wind, 311.2 lbf @ 50mph gusts (the original case study's "112 lbf @ 35mph" didn't actually match the tool's own formula — see Revision History v2.0.0)
 - **23cm antenna gain / beamwidth** (2.4m dish, 60% efficiency): 28.1 dBi / 6.7°
 - **Worst-case vegetation loss**: looking through the west hardwood treeline at low elevation (80ft trees, 120ft away) costs up to 40 dB (the model's cap) at 1296 MHz — exactly why the terrain-aware pass count excludes that azimuth/elevation combination rather than trying to estimate a loss for it
+
+### EME degradation and receiver noise figure
+
+Every qualifying pass now also carries an EME degradation figure in dB — 0 dB is the best achievable sky-noise + Moon-distance conditions for the selected band and receiver, higher is worse — computed from where the Moon sits relative to the galactic plane/center that day and how close it is to perigee. This is what drives the "best date" pick in the tables and the star markers on the plots above; see [Methodology & Limitations](#methodology--limitations) for the model and its sourcing.
+
+It depends on the receiver's noise figure (NF, dB, at the antenna feedpoint), which this profile currently sets from **generic placeholder values** (0.5dB at 144/432, 0.7dB at 1296, 0.9dB at 2304 — see `receiver_noise_figure_db` in [`k2ua_fn12fr46wo.json`](data/site_profiles/k2ua_fn12fr46wo.json)), not measured specs for this station's actual preamps. Update that block with real numbers for accurate degradation figures, or override per run with `--noise-figure-db <dB>`.
 
 ### "What if" re-runs — same site, different settings
 
@@ -268,6 +274,16 @@ curl -X POST https://your-api.amazonaws.com/calculate \
 
 **Tree heights and distances** are field estimates (±10ft on distance, ±5ft on height per the profile's own notes), not a survey. `calculate_tree_blockage()` and the single-direction `calculate_rf_considerations()` tree-loss estimate in `eme_calculator.py` are retained for backward compatibility but only model one direction — prefer a `TerrainProfile` for anything direction-dependent, which is essentially everything in EME siting.
 
+**EME degradation model** (`src/sky_noise.py`) ranks each month's "best day" by lowest degradation instead of highest elevation, as of v2.1.0. It combines two terms into one dB figure, 0 = best achievable for the selected band/receiver:
+
+- **Sky (galactic) noise**: the diffuse galactic radio background varies hugely with where in the sky the Moon is (cold off the galactic plane, much hotter toward the galactic center/Cygnus X) and falls off steeply with frequency (dominant at 144MHz, down to a few K above the cosmic microwave background by 1296MHz and up). A real pixel-accurate map means the `pygdsm` package — healpy, h5py, astropy, scipy, plus a ~500MB one-time data download — which was evaluated and declined as disproportionate to this project's footprint. Instead, `data/sky_noise/galactic_408mhz_grid.json` is a **synthesized analytic approximation** on a coarse 15°×15° galactic-coordinate grid, calibrated to published landmark magnitudes (Haslam et al. 1982; off-plane floor ≈15-20K, galactic-plane general enhancement to the ~100-200K range, inner-galaxy enhancement to the low thousands of K within a 15° beam-averaged cell) — **not digitized survey pixels**. Frequency scaling uses ITU-R P.372-12 eq (15): `Tb(f) = Tb(408MHz)*(f/408)^-2.75 + 2.7K`. Swapping in `pygdsm` or real digitized survey values later is a drop-in upgrade to that one file; nothing else would need to change. Full derivation and citations are in the `src/sky_noise.py` module docstring.
+- **Lunar distance (range factor)**: two-way (round-trip, R⁴) free-space path loss relative to a fixed perigee reference (356,500 km), which works out to ≈2.3 dB max at apogee — computed from `ephem`'s actual Moon-Earth distance for each sample, not a lookup table.
+- **Receiver noise figure**: from the site profile's `receiver_noise_figure_db` (per-band, at the antenna feedpoint) or `--noise-figure-db`, converted to noise temperature via the standard `Te = 290*(10^(NF_dB/10)-1)` relationship.
+
+This model started from a methodology summary the user supplied (paraphrased from WSJT-X/EME community practice). Two things in that summary didn't hold up against the references above and are corrected here — both explained in detail in the `sky_noise.py` docstring: the formula's sign was backwards (degradation went negative for worse conditions, contradicting its own "0dB=best, higher=worse" description), and the quoted 12-14dB apogee-to-perigee range is actually the sky-noise term's typical swing (real at 144MHz) misattributed to the much smaller (~2.3dB) distance term.
+
+**What the degradation model is not**: an atmospheric/rain-attenuation or elevation-dependent-loss model (those are handled separately by `rf_considerations`' rain-fade estimate and the terrain horizon cutoff), a substitute for real measured system noise figures (the K2UA profile currently ships placeholder NF values, not measurements — see [EME degradation and receiver noise figure](#eme-degradation-and-receiver-noise-figure)), or pixel-accurate galactic noise mapping (see above).
+
 ## Rerunning for Other Scenarios
 
 Every number in this README is reproducible from the CLI — no code changes needed for a new band, dish size, or antenna position:
@@ -313,6 +329,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | 2.0.1 | 2026-08-20 | Corrected the west hardwood treeline's modeled extent from a placeholder symmetric 300ft-each-way assumption to the operator's field estimate: an asymmetric row at least 800ft long, starting ~200ft north of the due-west line and running south. Added `along_line_start_ft`/`along_line_end_ft` support to `terrain.py` for asymmetric rows (kept `half_length_ft` working for symmetric ones, e.g. the east pine row). No region's annual pass count changed — see Methodology & Limitations. |
 | 2.0.2 | 2026-08-20 | Documentation only: local setup instructions (README Quick Start/Local Setup, DEPLOYMENT.md, PROJECT_STRUCTURE.md) now create and activate a Python virtual environment before `pip install`, instead of installing onto the system/Homebrew Python. Added a "Virtual Environment Setup" section to README.md. |
 | 2.0.3 | 2026-08-21 | `src/eme_calculator.py`'s CLI printed a large raw JSON dump to the terminal with no explanation of what it was, which read as broken rather than working as intended. Added `format_summary()` and made it the default terminal output (pass counts, wind loading, RF notes); the full JSON is now opt-in via `--json`, via `--output <file>` (which also still prints the summary), or automatically when stdout is piped/redirected rather than an interactive terminal. See [Reading the CLI Output](#reading-the-cli-output). |
+| **2.1.0** | **2026-08-21** | **EME degradation model.** Added `src/sky_noise.py`: sky (galactic) noise + lunar-distance path loss combined into a single dB degradation figure per pass (0dB = best achievable for the band/receiver). `monthly_conditions()` now ranks each month's "best day" by lowest degradation instead of highest peak elevation. Added `receiver_noise_figure_db` (per-band, at the antenna feedpoint) to the site profile schema, with a `--noise-figure-db` CLI override and generic per-band fallback defaults; seeded the K2UA profile with placeholder values pending real measurements. Corrected two errors found in the user-supplied source methodology during research (see Methodology & Limitations): a backwards degradation sign, and a 12-14dB apogee-to-perigee range-factor figure that was actually sky-noise swing misattributed to the (~2.3dB) distance term. Sky noise uses a synthesized, dependency-free analytic approximation of the galactic 408MHz background (`data/sky_noise/galactic_408mhz_grid.json`) rather than the `pygdsm` package, after evaluating and declining its ~500MB data download and heavy dependency chain (healpy/h5py/astropy/scipy) as disproportionate to this project. Polar plots now star each month's best-degradation day; monthly tables gained a Degradation (dB) column. No new dependencies. |
 
 ## Acknowledgments
 

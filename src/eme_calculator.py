@@ -21,6 +21,11 @@ try:
 except ImportError:
     from src.rf_analysis import RFAnalyzer
 
+try:
+    import sky_noise
+except ImportError:
+    from src import sky_noise
+
 
 class EMECalculator:
     """Main calculator class for EME dish siting analysis"""
@@ -41,6 +46,18 @@ class EMECalculator:
     # Fallback minimum elevation (degrees) when a band isn't in
     # RFAnalyzer.BAND_CHARACTERISTICS for some reason.
     DEFAULT_MIN_ELEVATION_DEG = 10
+
+    # Fallback receiver noise figures (dB), used only when a site profile
+    # doesn't supply its own 'receiver_noise_figure_db' map and no
+    # --noise-figure-db override is given on the command line. These are
+    # generic "decent preamp mounted at the antenna feedpoint" placeholder
+    # values, NOT measurements of any specific station's equipment -- put
+    # your real numbers in the profile JSON for accurate results.
+    DEFAULT_NOISE_FIGURE_DB_BY_BAND = {
+        144: 0.5, 432: 0.5, 902: 0.6, 1296: 0.7,
+        2304: 0.9, 3456: 1.2, 5760: 1.8, 10000: 2.5, 10368: 2.5,
+    }
+    DEFAULT_NOISE_FIGURE_DB = 1.0
 
     # Target region azimuth ranges (approximate)
     TARGET_REGIONS = {
@@ -105,6 +122,25 @@ class EMECalculator:
             return band["min_elevation_deg"]
         return self.DEFAULT_MIN_ELEVATION_DEG
 
+    def noise_figure_db_for_band(self, frequency_mhz: float,
+                                  override: Optional[float] = None) -> float:
+        """Receiver noise figure (dB) at the antenna feedpoint for this
+        band. Priority: an explicit override (e.g. --noise-figure-db) >
+        the site profile's own 'receiver_noise_figure_db' map (keyed by
+        band, string or int) > the generic DEFAULT_NOISE_FIGURE_DB_BY_BAND
+        placeholder table > DEFAULT_NOISE_FIGURE_DB."""
+        if override is not None:
+            return override
+        if self.terrain is not None:
+            nf_map = self.terrain.profile.get('receiver_noise_figure_db', {})
+            for key in (frequency_mhz, int(frequency_mhz), str(int(frequency_mhz))):
+                if key in nf_map:
+                    return nf_map[key]
+        band = int(frequency_mhz)
+        if band in self.DEFAULT_NOISE_FIGURE_DB_BY_BAND:
+            return self.DEFAULT_NOISE_FIGURE_DB_BY_BAND[band]
+        return self.DEFAULT_NOISE_FIGURE_DB
+
     def horizon_angle_deg(self, azimuth_deg: float) -> float:
         """Effective local horizon (terrain + tree obstruction) at this
         azimuth, degrees. 0 if no terrain profile was supplied (flat,
@@ -114,6 +150,17 @@ class EMECalculator:
         return self.terrain.horizon_angle_deg(
             azimuth_deg, self.offset_east_ft, self.offset_north_ft
         )
+
+    @staticmethod
+    def _moon_galactic_coords(moon: 'ephem.Moon') -> Tuple[float, float]:
+        """Galactic (longitude, latitude) in degrees for the Moon's
+        current astrometric J2000 position (moon.compute() must already
+        have been called). Used to look up the sky-noise model in
+        sky_noise.py -- see that module's docstring for what the
+        resulting degradation number means."""
+        eq = ephem.Equatorial(moon.a_ra, moon.a_dec, epoch=ephem.J2000)
+        gal = ephem.Galactic(eq)
+        return math.degrees(gal.lon), math.degrees(gal.lat)
 
     def calculate_daily_passes(self, start_date: datetime, frequency_mhz: float = 1296,
                                 days: int = 365, sample_minutes: int = 10,
@@ -156,11 +203,16 @@ class EMECalculator:
 
                     horizon = max(min_elev, self.horizon_angle_deg(az_deg))
                     if alt_deg >= horizon:
+                        gal_lon_deg, gal_lat_deg = self._moon_galactic_coords(moon)
+                        distance_km = moon.earth_distance * ephem.meters_per_au / 1000.0
                         usable_positions.append({
                             'time': ephem.Date(t),
                             'azimuth': az_deg,
                             'elevation': alt_deg,
                             'local_horizon_deg': horizon,
+                            'gal_lon_deg': gal_lon_deg,
+                            'gal_lat_deg': gal_lat_deg,
+                            'distance_km': distance_km,
                         })
 
                 if usable_positions:
@@ -214,7 +266,9 @@ class EMECalculator:
         return windows
 
     def analyze_eme_opportunities(self, daily_passes: List[Dict],
-                                   target_regions: List[str] = None) -> Dict:
+                                   target_regions: List[str] = None,
+                                   frequency_mhz: float = 1296,
+                                   noise_figure_db: Optional[float] = None) -> Dict:
         """Analyze EME opportunities by region.
 
         FIXED (see README Revision History): each qualifying calendar
@@ -226,10 +280,18 @@ class EMECalculator:
         window was counted separately, which could count a single
         moonrise 2-7x and produced 'annual pass' counts above 365 --
         physically impossible, since the Moon rises at most once a day.
+
+        Each day's representative pass also gets an EME degradation
+        figure (dB, 0 = best achievable for this band/receiver -- see
+        sky_noise.py) computed from that pass's sky (galactic-noise)
+        direction and lunar distance. monthly_conditions() uses this to
+        rank each month's single best day by lowest degradation rather
+        than highest elevation.
         """
         if target_regions is None:
             target_regions = list(self.TARGET_REGIONS.keys())
 
+        nf_db = self.noise_figure_db_for_band(frequency_mhz, noise_figure_db)
         region_passes = {region: [] for region in target_regions}
 
         for day in daily_passes:
@@ -249,6 +311,10 @@ class EMECalculator:
                         best_by_region[region] = pos
 
             for region, pos in best_by_region.items():
+                deg_db, deg_breakdown = sky_noise.degradation_db(
+                    frequency_mhz, pos['gal_lon_deg'], pos['gal_lat_deg'],
+                    pos['distance_km'], nf_db
+                )
                 region_passes[region].append({
                     'date': day['date'],
                     'moonrise': day['moonrise'],
@@ -257,16 +323,30 @@ class EMECalculator:
                     'azimuth': pos['azimuth'],
                     'elevation': pos['elevation'],
                     'local_horizon_deg': pos['local_horizon_deg'],
+                    'degradation_db': deg_db,
+                    'sky_temp_k': deg_breakdown['sky_temp_k'],
+                    'range_factor_db': deg_breakdown['range_factor_db'],
+                    'distance_km': pos['distance_km'],
                 })
 
         return region_passes
 
     def monthly_conditions(self, region_passes: Dict[str, List[Dict]]) -> Dict[str, Dict[int, Dict]]:
         """For each region and each calendar month, find the single best
-        (highest peak-elevation -- least atmospheric absorption, most
-        terrain/tree clearance) qualifying pass, and report the azimuth
-        and elevation range the Moon sweeps through during that specific
-        pass ('peak moon conditions' / minimum-degradation window)."""
+        qualifying pass and report the azimuth and elevation range the
+        Moon sweeps through during that specific pass ('peak moon
+        conditions' / minimum-degradation window).
+
+        "Best" is the LOWEST EME degradation (dB, see sky_noise.py) --
+        i.e. the day the Moon is in the coldest available sky direction
+        and closest to perigee, not simply the day it climbs highest.
+        (Prior to the degradation model, "best" meant highest peak
+        elevation; that ranking is superseded by this one -- see README
+        Revision History.) Every day still had to already clear the
+        band's minimum elevation AND the local terrain horizon to be in
+        region_passes at all, so degradation ranking never trades away
+        physical visibility -- it only orders days that were already
+        usable."""
         result: Dict[str, Dict[int, Dict]] = {}
         for region, passes in region_passes.items():
             by_month: Dict[int, List[Dict]] = {m: [] for m in range(1, 13)}
@@ -278,17 +358,22 @@ class EMECalculator:
             for month, month_passes in by_month.items():
                 if not month_passes:
                     continue
-                best = max(month_passes, key=lambda p: p['elevation'])
+                best = min(month_passes, key=lambda p: p['degradation_db'])
                 azimuths = [p['azimuth'] for p in month_passes]
                 elevations = [p['elevation'] for p in month_passes]
+                degradations = [p['degradation_db'] for p in month_passes]
                 result[region][month] = {
                     'best_date': str(ephem.Date(best['date']).datetime().date()),
                     'peak_azimuth_deg': best['azimuth'],
                     'peak_elevation_deg': best['elevation'],
                     'peak_time_utc': str(ephem.Date(best['peak_time']).datetime()),
                     'local_horizon_deg': best['local_horizon_deg'],
+                    'degradation_db': best['degradation_db'],
+                    'sky_temp_k': best['sky_temp_k'],
+                    'range_factor_db': best['range_factor_db'],
                     'month_azimuth_range_deg': (min(azimuths), max(azimuths)),
                     'month_elevation_range_deg': (min(elevations), max(elevations)),
+                    'month_degradation_range_db': (min(degradations), max(degradations)),
                     'qualifying_days_in_month': len(month_passes),
                 }
         return result
@@ -412,13 +497,16 @@ def format_summary(results: Dict) -> str:
         lines.append(f"Antenna offset: {loc['antenna_offset_east_ft']:+.0f}ft E, "
                       f"{loc['antenna_offset_north_ft']:+.0f}ft N of the profile location")
     lines.append(f"Band: {results['band_mhz']} MHz   "
-                  f"Min. usable elevation: {results['min_elevation_deg']:.0f}°")
+                  f"Min. usable elevation: {results['min_elevation_deg']:.0f}°   "
+                  f"Rx noise figure: {results.get('noise_figure_db', 0):.1f} dB")
     lines.append("")
-    lines.append("Annual EME opportunities by region:")
-    lines.append(f"  {'Region':<16}{'Passes/yr':>11}{'Avg peak el.':>15}")
+    lines.append("Annual EME opportunities by region (degradation: 0 dB = best-case sky")
+    lines.append("noise + Moon distance for this band/receiver, higher = worse):")
+    lines.append(f"  {'Region':<16}{'Passes/yr':>11}{'Avg peak el.':>15}{'Avg degrad.':>14}")
     for region, opp in results['eme_opportunities'].items():
         avg_el = f"{opp['avg_peak_elevation_deg']:.1f}°" if opp['annual_passes'] else "--"
-        lines.append(f"  {region:<16}{opp['annual_passes']:>11}{avg_el:>15}")
+        avg_deg = f"{opp['avg_degradation_db']:.1f} dB" if opp['annual_passes'] else "--"
+        lines.append(f"  {region:<16}{opp['annual_passes']:>11}{avg_el:>15}{avg_deg:>14}")
     lines.append("")
     wl = results['wind_loading']
     lines.append(f"Wind loading: {wl['force_lbf']:.1f} lbf at {wl['wind_speed_mph']:.0f} mph "
@@ -464,6 +552,12 @@ def main():
     parser.add_argument('--tree-distance', type=float, default=100,
                          help='Distance to trees in feet (ignored if --profile is given)')
     parser.add_argument('--wind-speed', type=float, default=35, help='Max wind speed in mph')
+    parser.add_argument('--noise-figure-db', type=float, default=None,
+                         help="Receiver noise figure in dB at the antenna feedpoint, for "
+                              "the selected --band. Overrides the site profile's "
+                              "'receiver_noise_figure_db' map and the built-in generic "
+                              "defaults -- use your real preamp spec for accurate EME "
+                              "degradation numbers.")
     parser.add_argument('--elevation', type=float, default=0,
                          help='Elevation in meters ASL (ignored if --profile is given)')
     parser.add_argument('--offset-east-ft', type=float, default=0.0,
@@ -512,8 +606,11 @@ def main():
     else:
         start_date = datetime.now().replace(day=1)
     daily_passes = calc.calculate_daily_passes(start_date, frequency_mhz=args.band, days=args.days)
-    opportunities = calc.analyze_eme_opportunities(daily_passes)
+    opportunities = calc.analyze_eme_opportunities(
+        daily_passes, frequency_mhz=args.band, noise_figure_db=args.noise_figure_db
+    )
     monthly = calc.monthly_conditions(opportunities)
+    noise_figure_db = calc.noise_figure_db_for_band(args.band, args.noise_figure_db)
 
     wind_loading = calc.calculate_wind_loading(args.dish_diameter, args.wind_speed)
     rf_considerations = calc.calculate_rf_considerations(args.band, args.tree_height, args.tree_distance)
@@ -530,11 +627,14 @@ def main():
         },
         'band_mhz': args.band,
         'min_elevation_deg': calc.min_elevation_for_band(args.band),
+        'noise_figure_db': noise_figure_db,
         'eme_opportunities': {
             region: {
                 'annual_passes': len(passes),
                 'avg_peak_elevation_deg': (sum(p['elevation'] for p in passes) / len(passes)
                                             if passes else 0),
+                'avg_degradation_db': (sum(p['degradation_db'] for p in passes) / len(passes)
+                                        if passes else 0),
             }
             for region, passes in opportunities.items()
         },

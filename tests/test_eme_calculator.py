@@ -71,7 +71,7 @@ def test_format_summary_contains_key_numbers_not_raw_json():
     calc.setup_observer(terrain.latitude, terrain.longitude, terrain.elevation_ft * 0.3048)
     start = datetime(2026, 1, 1)
     daily_passes = calc.calculate_daily_passes(start, frequency_mhz=1296, days=30)
-    opportunities = calc.analyze_eme_opportunities(daily_passes)
+    opportunities = calc.analyze_eme_opportunities(daily_passes, frequency_mhz=1296)
     monthly = calc.monthly_conditions(opportunities)
     wind_loading = calc.calculate_wind_loading(2.4, 35)
     rf = calc.calculate_rf_considerations(1296)
@@ -85,10 +85,13 @@ def test_format_summary_contains_key_numbers_not_raw_json():
         },
         'band_mhz': 1296,
         'min_elevation_deg': calc.min_elevation_for_band(1296),
+        'noise_figure_db': calc.noise_figure_db_for_band(1296),
         'eme_opportunities': {
             region: {'annual_passes': len(passes),
                       'avg_peak_elevation_deg': (sum(p['elevation'] for p in passes) / len(passes)
-                                                  if passes else 0)}
+                                                  if passes else 0),
+                      'avg_degradation_db': (sum(p['degradation_db'] for p in passes) / len(passes)
+                                              if passes else 0)}
             for region, passes in opportunities.items()
         },
         'monthly_conditions': monthly,
@@ -104,3 +107,54 @@ def test_format_summary_contains_key_numbers_not_raw_json():
     for region in EMECalculator.TARGET_REGIONS:
         assert region in summary
     assert f"{wind_loading['force_lbf']:.1f}" in summary
+
+
+def test_monthly_best_day_is_the_lowest_degradation_day_in_that_month(result_90days):
+    # Regression test for the "best day" ranking change: monthly_conditions()
+    # must pick the day with the LOWEST degradation_db in each month, not
+    # (as before this feature) the day with the highest peak elevation.
+    opportunities, _ = result_90days
+    calc = EMECalculator()
+    monthly = calc.monthly_conditions(opportunities)
+    for region, passes in opportunities.items():
+        for month, info in monthly[region].items():
+            month_passes = [p for p in passes if p['date'].month == month]
+            if not month_passes:
+                continue
+            expected_min = min(p['degradation_db'] for p in month_passes)
+            assert abs(info['degradation_db'] - expected_min) < 1e-9, (
+                f"{region} month {month}: best_date's degradation_db "
+                f"{info['degradation_db']} is not the month's minimum "
+                f"({expected_min}) -- best-day ranking should be by "
+                f"lowest degradation, not highest elevation."
+            )
+
+
+def test_noise_figure_lookup_priority_override_then_profile_then_default():
+    terrain = TerrainProfile(PROFILE_PATH)
+    calc = EMECalculator(terrain_profile=terrain)
+    # An explicit override always wins.
+    assert calc.noise_figure_db_for_band(1296, override=1.23) == 1.23
+    # With no override, and no 'receiver_noise_figure_db' in this profile
+    # yet, it should fall back to the generic per-band default table.
+    assert calc.noise_figure_db_for_band(1296) == \
+        EMECalculator.DEFAULT_NOISE_FIGURE_DB_BY_BAND[1296]
+    # A profile-supplied value should be used when present.
+    terrain.profile['receiver_noise_figure_db'] = {'1296': 0.42}
+    assert calc.noise_figure_db_for_band(1296) == 0.42
+
+
+def test_degradation_is_zero_at_best_case_and_positive_otherwise():
+    import sky_noise
+    best_db, _ = sky_noise.degradation_db(
+        1296, galactic_lon_deg=200, galactic_lat_deg=90,
+        distance_km=sky_noise.PERIGEE_REF_KM, noise_figure_db=0.7)
+    assert abs(best_db) < 1e-9
+    worse_db, _ = sky_noise.degradation_db(
+        1296, galactic_lon_deg=0, galactic_lat_deg=0,
+        distance_km=406700, noise_figure_db=0.7)
+    assert worse_db > 0
+    # Range factor alone should be a couple dB, not the 12-14 dB the
+    # original (incorrect) pasted formula suggested -- see sky_noise.py
+    # module docstring.
+    assert 0 <= sky_noise.moon_range_factor_db(406700) < 3.0

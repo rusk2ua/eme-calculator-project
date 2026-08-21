@@ -46,7 +46,7 @@ GUIDE_COLOR = '#4A4A4A'
 
 
 def build_region_plot(region, min_az, max_az, passes, terrain, offset_e, offset_n,
-                       min_elev_deg, out_path, site_label, band_mhz):
+                       min_elev_deg, out_path, site_label, band_mhz, monthly_region):
     fig = plt.figure(figsize=(7.5, 7.5), dpi=150)
     ax = fig.add_subplot(111, projection='polar')
     ax.set_theta_zero_location('N')
@@ -104,7 +104,19 @@ def build_region_plot(region, min_az, max_az, passes, terrain, offset_e, offset_
                          edgecolors='none')
         cbar = fig.colorbar(sc, ax=ax, pad=0.11, shrink=0.75, ticks=range(1, 13))
         cbar.ax.set_yticklabels(MONTH_ABBR, fontsize=7)
-        cbar.set_label('Month of best (peak-elevation) pass', fontsize=8)
+        cbar.set_label('Month (every qualifying day\'s peak position)', fontsize=8)
+
+    # Overlay each month's single BEST (lowest EME degradation, not
+    # highest elevation -- see README Methodology & Limitations / Rev.
+    # History) day as a black-edged star, so the table's "best date" per
+    # month is visually traceable back to its position on this plot.
+    if monthly_region:
+        best_az = [info['peak_azimuth_deg'] for info in monthly_region.values()]
+        best_el = [info['peak_elevation_deg'] for info in monthly_region.values()]
+        best_r = [90.0 - el for el in best_el]
+        ax.scatter(np.radians(best_az), best_r, marker='*', s=140,
+                   facecolors='none', edgecolors='black', linewidths=1.1,
+                   zorder=4, label='Month\'s best (lowest-degradation) day')
 
     n_passes = len(passes)
     ax.set_title(
@@ -120,6 +132,9 @@ def build_region_plot(region, min_az, max_az, passes, terrain, offset_e, offset_
                    label=f'{band_mhz} MHz min elevation ({min_elev_deg:.0f} deg)'),
         plt.Line2D([0], [0], color=GUIDE_COLOR, lw=1.1, linestyle='--',
                    label='Region azimuth window'),
+        plt.Line2D([0], [0], marker='*', color='none', markeredgecolor='black',
+                   markersize=11, linestyle='none',
+                   label='Month\'s best (lowest-degradation) day'),
     ]
     ax.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, -0.06),
               fontsize=7.5, frameon=False, ncol=1)
@@ -129,22 +144,29 @@ def build_region_plot(region, min_az, max_az, passes, terrain, offset_e, offset_
     plt.close(fig)
 
 
-def format_monthly_table_md(region, monthly, min_elev_deg):
+def format_monthly_table_md(region, monthly, min_elev_deg, noise_figure_db):
     lines = [
         f"### {region}",
         "",
-        "| Month | Best date | Peak Az (deg) | Peak El (deg) | Az range (deg) | El range (deg) | Qualifying days |",
-        "|---|---|---|---|---|---|---|",
+        f"Rx noise figure used: {noise_figure_db:.1f} dB. \"Best date\" is the day with the "
+        "LOWEST EME degradation (sky noise + Moon distance, 0 dB = best case for this "
+        "band/receiver) among that month's qualifying days -- not necessarily the highest "
+        "peak elevation.",
+        "",
+        "| Month | Best date | Degradation (dB) | Peak Az (deg) | Peak El (deg) | "
+        "Az range (deg) | El range (deg) | Qualifying days |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for m in range(1, 13):
         info = monthly.get(m)
         if not info:
-            lines.append(f"| {MONTH_ABBR[m-1]} | -- | -- | -- | -- | -- | 0 |")
+            lines.append(f"| {MONTH_ABBR[m-1]} | -- | -- | -- | -- | -- | -- | 0 |")
             continue
         az_lo, az_hi = info['month_azimuth_range_deg']
         el_lo, el_hi = info['month_elevation_range_deg']
         lines.append(
             f"| {MONTH_ABBR[m-1]} | {info['best_date']} | "
+            f"{info['degradation_db']:.2f} | "
             f"{info['peak_azimuth_deg']:.1f} | {info['peak_elevation_deg']:.1f} | "
             f"{az_lo:.1f}-{az_hi:.1f} | {el_lo:.1f}-{el_hi:.1f} | "
             f"{info['qualifying_days_in_month']} |"
@@ -164,6 +186,10 @@ def main():
     ap.add_argument('--start-date', help='YYYY-MM-DD, default: 1st of the current month')
     ap.add_argument('--out-dir', default='docs/plots')
     ap.add_argument('--tables-out', default='docs/monthly_conditions.md')
+    ap.add_argument('--noise-figure-db', type=float, default=None,
+                     help='Receiver noise figure in dB at the antenna feedpoint, for the '
+                          'selected --band. Overrides the profile\'s receiver_noise_figure_db '
+                          'map and the built-in generic defaults.')
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -179,20 +205,24 @@ def main():
     else:
         start_date = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     daily_passes = calc.calculate_daily_passes(start_date, frequency_mhz=args.band, days=args.days)
-    opportunities = calc.analyze_eme_opportunities(daily_passes)
+    opportunities = calc.analyze_eme_opportunities(
+        daily_passes, frequency_mhz=args.band, noise_figure_db=args.noise_figure_db
+    )
     monthly = calc.monthly_conditions(opportunities)
+    noise_figure_db = calc.noise_figure_db_for_band(args.band, args.noise_figure_db)
 
     min_elev_deg = calc.min_elevation_for_band(args.band)
     site_label = terrain.profile.get('profile_name', terrain.profile.get('grid_square', 'site'))
 
     md_sections = [
         f"# Monthly Peak-Condition Az/El Tables\n",
-        f"Site: {site_label} | Band: {args.band} MHz | "
+        f"Site: {site_label} | Band: {args.band} MHz | Rx noise figure: {noise_figure_db:.1f} dB | "
         f"Antenna offset: {args.offset_east_ft:+.0f}ft E, {args.offset_north_ft:+.0f}ft N\n",
-        "Each row is the SINGLE best (highest peak-elevation, i.e. least "
-        "atmospheric-absorption and obstruction degradation) qualifying pass "
-        "in that month, plus the azimuth/elevation range covered by every "
-        "qualifying pass that month.\n",
+        "Each row is the SINGLE best (lowest EME degradation -- sky noise + Moon "
+        "distance, see README Methodology & Limitations) qualifying pass in that "
+        "month, plus the azimuth/elevation range covered by every qualifying pass "
+        "that month. The starred point on each region's polar plot is this same "
+        "best-degradation day.\n",
     ]
 
     for region, (min_az, max_az) in EMECalculator.TARGET_REGIONS.items():
@@ -200,9 +230,11 @@ def main():
         out_path = os.path.join(args.out_dir, f"{region.lower().replace(' ', '_')}_polar.png")
         build_region_plot(region, min_az, max_az, passes, terrain,
                            args.offset_east_ft, args.offset_north_ft,
-                           min_elev_deg, out_path, site_label, args.band)
+                           min_elev_deg, out_path, site_label, args.band,
+                           monthly[region])
         print(f"Wrote {out_path} ({len(passes)} qualifying days/yr)")
-        md_sections.append(format_monthly_table_md(region, monthly[region], min_elev_deg))
+        md_sections.append(format_monthly_table_md(region, monthly[region], min_elev_deg,
+                                                     noise_figure_db))
 
     with open(args.tables_out, 'w') as f:
         f.write("\n".join(md_sections))

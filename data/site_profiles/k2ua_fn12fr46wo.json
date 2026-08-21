@@ -59,6 +59,14 @@
     }
   ],
 
+  "receiver_noise_figure_db": {
+    "_meta": "PLACEHOLDER values, at the antenna feedpoint (preamp mounted at the dish, feedline loss after the preamp not modeled) -- generic 'decent preamp' numbers, not measured for this station's actual equipment. Replace with real NF specs/measurements per band for accurate degradation numbers; see README Methodology & Limitations.",
+    "144": 0.5,
+    "432": 0.5,
+    "1296": 0.7,
+    "2304": 0.9
+  },
+
   "dem_octant_samples_ft": {
     "_meta": "USGS EPQS point elevations at 2000ft range on each principal bearing from the antenna, queried 2026-08-20. Used as a coarse regional 'terrain floor' between/beyond the explicit obstruction features above via piecewise-linear interpolation by azimuth. This is NOT a full ray-marched horizon profile -- see README Methodology & Limitations.",
     "site_elevation_ft": 1573.88,

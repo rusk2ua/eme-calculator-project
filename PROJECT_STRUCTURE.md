@@ -14,11 +14,14 @@ eme-dish-calculator/
 ├── src/                    # Core calculation modules
 │   ├── eme_calculator.py   # Main EME calculator class
 │   ├── rf_analysis.py      # Advanced RF analysis
-│   └── terrain.py          # Direction-aware terrain/obstruction horizon model
+│   ├── terrain.py          # Direction-aware terrain/obstruction horizon model
+│   └── sky_noise.py        # EME degradation: galactic sky noise + lunar-distance path loss
 │
 ├── data/
-│   └── site_profiles/      # Site obstruction profiles (JSON)
-│       └── k2ua_fn12fr46wo.json
+│   ├── site_profiles/      # Site obstruction profiles (JSON)
+│   │   └── k2ua_fn12fr46wo.json
+│   └── sky_noise/
+│       └── galactic_408mhz_grid.json  # Synthesized 408MHz galactic-noise lookup grid
 │
 ├── scripts/
 │   └── generate_polar_plots.py  # Polar az/el plots + monthly az/el tables
@@ -74,6 +77,11 @@ eme-dish-calculator/
   - Line-segment and azimuth-arc obstruction geometry
   - USGS EPQS regional terrain floor (sparse-sampled + interpolated)
   - Antenna-offset support for "what if I moved the dish" re-runs
+- **sky_noise.py**: EME degradation model
+  - Galactic sky-noise temperature (synthesized `data/sky_noise/galactic_408mhz_grid.json`, ITU-R P.372-12 frequency scaling)
+  - Lunar-distance (range factor) path loss
+  - Receiver noise-figure to noise-temperature conversion
+  - Combined into a single degradation dB figure used to rank each month's "best day"
 
 ### Lambda Function (`lambda/`)
 - **lambda_function.py**: AWS Lambda handler
