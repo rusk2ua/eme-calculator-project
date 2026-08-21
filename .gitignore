@@ -53,3 +53,10 @@ layer/python/
 # Temporary files
 *.tmp
 *.temp
+
+# CLI --output result dumps left in the project root (e.g. from
+# `python src/eme_calculator.py --output results.json`). Anchored to the
+# root only (leading slash, no wildcard directories) so it does NOT
+# affect tracked JSON that belongs in the repo, like
+# data/site_profiles/*.json or data/sky_noise/*.json.
+/*.json
