@@ -7,6 +7,51 @@ This tool exists to answer two questions, in order:
 
 The **site profile** (a JSON file under `data/site_profiles/`) is how you answer question 1: it's the calculator's model of what's really blocking your view of the sky, in every direction, from your own patch of ground. Everything downstream — the pass counts, the polar plots, the monthly best-day tables — is question 2's answer, computed *from* that model. This guide covers how to build a site profile for your own property, how to read what the plots are showing you, and a complete worked example (K2UA's station, grid square FN12fr46wo) end to end.
 
+## Building a profile
+
+Three ways to get from "trees and terrain around my antenna spot" to a working site profile, roughly in order of how much they do for you:
+
+### The wizard (recommended)
+
+```bash
+python3 scripts/build_site_profile.py
+```
+
+Walks through profile name, location, elevation (auto-fetched from USGS EPQS when you have internet access, or entered by hand), antenna height, notes, then loops adding obstructions one at a time. For each obstruction you can type bearing/distance numbers directly, give two lat/lon points and let it compute the geometry, or give two pixel points from a map screenshot (the same math behind `scripts/map_pixel_to_geo.py`, just inline) — whichever's easiest for that particular tree line. It then asks for per-band receiver noise figures, tries to auto-fetch the regional DEM terrain floor, writes the profile, **validates it** (loads it back through the real terrain model and flags anything that looks wrong — a non-positive height or distance, a backwards azimuth span, or a profile where nothing registers as an obstruction at all), and offers to generate the polar plots immediately so you can eyeball the obstruction wedge before trusting it.
+
+Every prompt shows a default in `[brackets]` — press Enter to accept it — and Ctrl+C aborts cleanly at any point without writing anything.
+
+### From a map screenshot, with Claude
+
+If you're working with Claude and have a Google Maps or Google Earth screenshot with a pin dropped at the antenna location, share it in your conversation. Claude can read pixel positions directly off the image — the pin, and the visible edges of each tree line or cluster you point out — and turn them into real bearing/distance numbers using `scripts/map_pixel_to_geo.py` (deterministic geometry, not a guess): given the pin's pixel position, the map's zoom level (the trailing `z` in a Google Maps URL, e.g. `.../@42.735,-77.542,19z` → zoom 19), and a target pixel position, it computes bearing and distance; given two pixel points marking a row's ends, it computes the complete `line_obstructions` geometry (`bearing_deg`, `perp_distance_ft`, `line_bearing_deg`, `along_line_start_ft`, `along_line_end_ft`) in one shot, ready to paste into a profile or type into the wizard.
+
+Height is the one thing a straight-down (nadir) screenshot genuinely can't give you by itself — see [How obstructions become the gray wedge](#how-obstructions-become-the-gray-wedge-on-the-polar-plots) below for why. Two options:
+
+- **Estimate it.** This project already works to field-estimate precision (the K2UA example below is ±10ft on distance, ±5ft on height) — a careful visual estimate against a known reference (a nearby building, a utility pole) is entirely consistent with everything else here.
+- **Compute it from a shadow.** If the image shows a visible shadow *and* you know its capture date/time (Google Earth Pro's historical-imagery view shows this; plain Google Maps screenshots usually don't), `scripts/estimate_shadow_height.py` computes the Sun's actual elevation angle at that moment (via `ephem`, already a project dependency — the same library this project uses for the Moon) and derives height from the shadow's length: `height = shadow_length * tan(sun_elevation)`. It also prints the Sun's azimuth at capture time so you can sanity-check the shadow's direction in the image roughly matches (a shadow points opposite the Sun).
+
+```bash
+# Bearing/distance to one obstruction reference point
+python3 scripts/map_pixel_to_geo.py --mode point \
+  --pin-lat 42.735913 --zoom 19 --pin-px 500 --pin-py 500 --target-px 550 --target-py 420
+
+# Full line geometry from a row's two ends
+python3 scripts/map_pixel_to_geo.py --mode line \
+  --pin-lat 42.735913 --zoom 19 --pin-px 500 --pin-py 500 \
+  --end1-px 350 --end1-py 420 --end2-px 350 --end2-py 700 --height-ft 80 --name "West treeline"
+
+# Height from a shadow, given the image's capture date/time (UTC)
+python3 scripts/estimate_shadow_height.py --shadow-length-ft 40 \
+  --lat 42.735913 --lon -77.54235 --elevation-ft 1573.88 \
+  --capture-datetime-utc "2026-06-21 16:00"
+```
+
+What this deliberately does **not** do is auto-detect obstructions from imagery or estimate height from a single oblique photo via photogrammetry — both would need real object-detection models or camera-calibrated perspective math, adding heavy dependencies for accuracy that likely wouldn't beat your own eyeball estimate anyway. The design here is Claude-in-the-loop plus deterministic math, not automated computer vision.
+
+### By hand
+
+You can always skip both of the above and write (or edit) the JSON directly — see [the field-by-field reference](#the-site-profile-json-field-by-field) below. This is what the wizard and the screenshot workflow are ultimately producing; useful to understand if you want to tweak a profile after the fact, or if neither tool fits how you're working.
+
 ## The site profile JSON, field by field
 
 Top-level fields:
@@ -166,20 +211,19 @@ python src/eme_calculator.py --profile data/site_profiles/k2ua_fn12fr46wo.json -
 python src/eme_calculator.py --profile data/site_profiles/k2ua_fn12fr46wo.json --offset-east-ft -100 --start-date 2026-01-01
 ```
 
-## Building your own profile, step by step
+## Surveying your property, and what to do after you have a profile
 
-1. **Get your coordinates and elevation.** `latitude`/`longitude` from a GPS reading or Google Maps; `elevation_ft` from USGS EPQS (`terrain.fetch_elevation_ft(lat, lon)`, needs internet) or any topo source.
-2. **Walk (or view via satellite imagery) the horizon around your prospective antenna spot**, direction by direction. For each obstruction that matters, note: what it is, its height above the ground at the antenna (not sea level), its distance, and its bearing from the antenna.
-3. **Decide line vs. cluster for each obstruction.** A hedgerow, fence line, or single row of trees is a `line_obstructions` entry — measure `perp_distance_ft`/`bearing_deg` to its nearest point and `line_bearing_deg` for the direction it runs, then either `half_length_ft` if it's roughly centered on that perpendicular foot point, or `along_line_start_ft`/`along_line_end_ft` if it isn't (see the K2UA west treeline above for a worked case of the latter). A stand or cluster with no clean line — a woodlot, an irregular tree mass — is easier as an `arc_obstructions` entry: just the azimuth span it covers plus one representative height/distance.
-4. **Fill in `dem_octant_samples_ft`** with `terrain.fetch_octant_samples(lat, lon)` for a coarse regional floor, so azimuths without a surveyed near-field feature aren't silently treated as perfectly flat.
-5. **Add `receiver_noise_figure_db`** for whichever bands you actually operate, at the antenna feedpoint (before feedline loss, after the preamp) — this is what the EME degradation ranking uses to pick each month's "best day." Bands you don't list fall back to a generic placeholder table; add real values as you get them.
-6. **Run the CLI against your profile** and read the summary:
-   ```bash
-   python src/eme_calculator.py --profile data/site_profiles/your_site.json --band 1296
-   ```
-7. **Generate the plots and eyeball the wedge** (`scripts/generate_polar_plots.py`, `scripts/generate_monthly_track_plots.py` — see commands above). Confirm the gray wedge's shape matches what you'd actually expect standing at the site — a deep bite where you know there's a close treeline, shallow shading elsewhere. If it doesn't, recheck `bearing_deg` vs. `line_bearing_deg` (the most common mix-up) before trusting the pass counts.
-8. **Check your target regions against your latitude's moonrise/moonset blind zone** ([above](#why-moonrise-and-moonset-arent-available-at-every-azimuth)) before spending more survey time on a direction — no obstruction model matters for a sector the Moon can never reach from your latitude in the first place.
-9. **Iterate as better field data comes in.** Swap placeholders for real measurements, regenerate the plots, and check whether the change actually moves a pass count (it often doesn't move as much as the plot's shape suggests) before treating a re-survey as urgent.
+However you build the profile (wizard, screenshot, or by hand), the actual field work behind it is the same:
+
+- **Walk the horizon around your prospective antenna spot**, direction by direction (or work from satellite imagery). For each obstruction that matters, note what it is, its height above the ground *at the antenna* (not sea level), its distance, and its bearing.
+- **Decide line vs. cluster for each one.** A hedgerow, fence line, or single row of trees is a `line_obstructions` entry; a stand or cluster with no clean line — a woodlot, an irregular tree mass — is easier as an `arc_obstructions` entry (see the K2UA west treeline below for a worked case of an asymmetric line, and the schema reference above for the difference).
+
+And once you have a profile, before you trust it:
+
+1. **Run the CLI and read the summary**: `python src/eme_calculator.py --profile data/site_profiles/your_site.json --band 1296`.
+2. **Generate the plots and eyeball the wedge** (`scripts/generate_polar_plots.py`, `scripts/generate_monthly_track_plots.py`). Confirm the gray wedge's shape matches what you'd actually expect standing at the site — a deep bite where you know there's a close treeline, shallow shading elsewhere. If it doesn't, recheck `bearing_deg` vs. `line_bearing_deg` (the most common mix-up) before trusting the pass counts.
+3. **Check your target regions against your latitude's moonrise/moonset blind zone** ([above](#why-moonrise-and-moonset-arent-available-at-every-azimuth)) before spending more survey time on a direction — no obstruction model matters for a sector the Moon can never reach from your latitude in the first place.
+4. **Iterate as better field data comes in.** Swap placeholders for real measurements, regenerate the plots, and check whether the change actually moves a pass count (it often doesn't move as much as the plot's shape suggests) before treating a re-survey as urgent.
 
 ## See also
 

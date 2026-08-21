@@ -15,7 +15,8 @@ eme-dish-calculator/
 │   ├── eme_calculator.py   # Main EME calculator class
 │   ├── rf_analysis.py      # Advanced RF analysis
 │   ├── terrain.py          # Direction-aware terrain/obstruction horizon model
-│   └── sky_noise.py        # EME degradation: galactic sky noise + lunar-distance path loss
+│   ├── sky_noise.py        # EME degradation: galactic sky noise + lunar-distance path loss
+│   └── site_survey.py      # Site-survey math: lat/lon & pixel geometry, shadow-length height estimation
 │
 ├── data/
 │   ├── site_profiles/      # Site obstruction profiles (JSON)
@@ -24,6 +25,9 @@ eme-dish-calculator/
 │       └── galactic_408mhz_grid.json  # Synthesized 408MHz galactic-noise lookup grid
 │
 ├── scripts/
+│   ├── build_site_profile.py           # Interactive wizard: build a site profile JSON step by step
+│   ├── map_pixel_to_geo.py             # Map-screenshot pixel coords -> bearing/distance/line geometry
+│   ├── estimate_shadow_height.py       # Obstruction height from a shadow's length + capture date/time
 │   ├── generate_polar_plots.py         # Annual per-region polar scatter plots + monthly az/el tables
 │   └── generate_monthly_track_plots.py # One plot/month: every region's single best-day pass track
 │
@@ -44,8 +48,10 @@ eme-dish-calculator/
 │   └── deploy.py          # Web file deployment Lambda
 │
 ├── tests/
-│   ├── test_terrain.py         # Obstruction geometry sanity checks
-│   └── test_eme_calculator.py  # Pass-counting, degradation-ranking, and pass-track regression tests
+│   ├── test_terrain.py            # Obstruction geometry sanity checks
+│   ├── test_eme_calculator.py     # Pass-counting, degradation-ranking, and pass-track regression tests
+│   ├── test_site_survey.py        # Site-survey math regression tests (geometry, shadow-height)
+│   └── test_build_site_profile.py # End-to-end wizard test (scripted answers -> valid profile)
 │
 └── docs/
     ├── SITE_PROFILE_GUIDE.md   # How to build a site profile JSON for your own property (K2UA worked example)
@@ -88,6 +94,16 @@ eme-dish-calculator/
   - Lunar-distance (range factor) path loss
   - Receiver noise-figure to noise-temperature conversion
   - Combined into a single degradation dB figure used to rank each month's "best day"
+- **site_survey.py**: Site-survey measurement helpers (used by `scripts/build_site_profile.py` and `scripts/map_pixel_to_geo.py`)
+  - Bearing/distance from two lat/lon points, or two pixel points on a map screenshot (Web Mercator ground-scale math)
+  - Fitting a complete `line_obstructions` geometry from three points (antenna + a row's two ends)
+  - Obstruction height from a shadow's length + capture date/time, via `ephem`'s Sun position
+
+### Scripts (`scripts/`)
+- **build_site_profile.py**: Interactive wizard for building a site profile JSON -- see [docs/SITE_PROFILE_GUIDE.md](docs/SITE_PROFILE_GUIDE.md)
+- **map_pixel_to_geo.py**: CLI wrapper around `site_survey.py`'s pixel-geometry functions, for the "screenshot with Claude" workflow
+- **estimate_shadow_height.py**: CLI wrapper around `site_survey.py`'s shadow-height estimator
+- **generate_polar_plots.py** / **generate_monthly_track_plots.py**: see the Case Study / Site Profile Guide sections of the README
 
 ### Lambda Function (`lambda/`)
 - **lambda_function.py**: AWS Lambda handler
