@@ -28,8 +28,13 @@ def test_west_treeline_angle_matches_survey(profile):
 
 
 def test_east_pine_row_angle_matches_survey(profile):
-    # 45ft trees, 200ft away, due east (90deg) -> atan(45/200)
-    expected = math.degrees(math.atan2(45, 200))
+    # 45ft trees; row's perpendicular bearing is 86.8deg (not due east),
+    # so checking at az=90 hits the row 215.34ft out, not exactly
+    # perp_distance_ft=215 -- expected value is the ray/line intersection
+    # distance at az=90 (verified independently against the row's
+    # bearing_deg/perp_distance_ft/line_bearing_deg, not just copied from
+    # the code under test).
+    expected = math.degrees(math.atan2(45, 215.33575922868968))
     got = profile.horizon_angle_deg(90)
     assert got == pytest.approx(expected, abs=0.05)
 
@@ -66,10 +71,13 @@ def test_moving_antenna_toward_obstruction_increases_angle(profile):
 def test_moving_antenna_away_from_obstruction_decreases_angle(profile):
     baseline = profile.horizon_angle_deg(90)
     # Move the antenna 100ft WEST -- distance to the EAST pine row grows
-    # from 200ft to 300ft, angle must decrease.
+    # (row's perpendicular bearing is 86.8deg, not due east, so this isn't
+    # exactly +100ft; expected value is the ray/line intersection distance
+    # at az=90 with offset_east_ft=-100, verified independently against
+    # the row's line geometry).
     moved = profile.horizon_angle_deg(90, offset_east_ft=-100)
     assert moved < baseline
-    expected = math.degrees(math.atan2(45, 300))
+    expected = math.degrees(math.atan2(45, 315.3357592286897))
     assert moved == pytest.approx(expected, abs=0.05)
 
 

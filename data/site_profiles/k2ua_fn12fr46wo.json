@@ -22,12 +22,13 @@
     },
     {
       "name": "East pine row",
-      "description": "Row of pine trees roughly 5 deg west of north to 5 deg east of south, ~350ft long, centered ~200ft east of the antenna",
+      "description": "Windbreak/treeline paralleling Canadice Hill Rd, east side of the field",
       "height_ft": 45,
-      "perp_distance_ft": 200,
-      "bearing_deg": 90,
-      "line_bearing_deg": 357.5,
-      "half_length_ft": 175
+      "perp_distance_ft": 215,
+      "bearing_deg": 86.8,
+      "line_bearing_deg": 176.8,
+      "half_length_ft": 170,
+      "assumption": "Distance (215ft) and total length (340ft, i.e. half_length_ft 170) re-measured 2026-08-21 via Google Maps' Measure Distance tool against a Google Maps satellite screenshot with the antenna pin dropped -- ground truth, not pixel-derived. bearing_deg/line_bearing_deg are pixel-geometry estimates from the same screenshot (scripts/map_pixel_to_geo.py, zoom 20); angle-only values are unaffected by screenshot pixel-density scaling, but were not independently cross-checked against a compass bearing. Assumes the row is centered on its closest point to the antenna -- adjust to along_line_start_ft/along_line_end_ft if that's not the case."
     }
   ],
 
