@@ -6,6 +6,7 @@ Modular library for calculating optimal EME dish placement
 
 import math
 import json
+import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 import ephem
@@ -396,6 +397,56 @@ class EMECalculator:
         return recommendations
 
 
+def format_summary(results: Dict) -> str:
+    """Short, human-readable rendering of a results dict (see main()) --
+    the default terminal output. Pass --json or --output for the full
+    machine-readable JSON instead."""
+    loc = results['location']
+    lines = []
+    lines.append("EME Dish Siting Calculator -- Results Summary")
+    lines.append("=" * 48)
+    lines.append(f"Site: {loc['grid_square']}  "
+                  f"({loc['latitude']:.6f}, {loc['longitude']:.6f})  "
+                  f"{loc['elevation_m']:.1f} m ASL")
+    if loc['antenna_offset_east_ft'] or loc['antenna_offset_north_ft']:
+        lines.append(f"Antenna offset: {loc['antenna_offset_east_ft']:+.0f}ft E, "
+                      f"{loc['antenna_offset_north_ft']:+.0f}ft N of the profile location")
+    lines.append(f"Band: {results['band_mhz']} MHz   "
+                  f"Min. usable elevation: {results['min_elevation_deg']:.0f}°")
+    lines.append("")
+    lines.append("Annual EME opportunities by region:")
+    lines.append(f"  {'Region':<16}{'Passes/yr':>11}{'Avg peak el.':>15}")
+    for region, opp in results['eme_opportunities'].items():
+        avg_el = f"{opp['avg_peak_elevation_deg']:.1f}°" if opp['annual_passes'] else "--"
+        lines.append(f"  {region:<16}{opp['annual_passes']:>11}{avg_el:>15}")
+    lines.append("")
+    wl = results['wind_loading']
+    lines.append(f"Wind loading: {wl['force_lbf']:.1f} lbf at {wl['wind_speed_mph']:.0f} mph "
+                  f"(dish area {wl['dish_area_m2']:.2f} m²)")
+    rf = results['rf_considerations']
+    lines.append(f"RF ({rf['band_name']}, {rf['frequency_mhz']} MHz): "
+                  f"wavelength {rf['wavelength_cm']:.1f}cm, "
+                  f"tree sensitivity {rf['tree_sensitivity']}, "
+                  f"rain fade est. {rf['estimated_rain_fade_db']:.2f} dB")
+    if results['tree_blockage'].get('tree_height_ft', 0) > 0:
+        tb = results['tree_blockage']
+        lines.append(f"Single-direction tree blockage estimate: {tb['blockage_angle_deg']:.1f}° "
+                      f"({tb['tree_height_ft']:.0f}ft trees at {tb['tree_distance_ft']:.0f}ft)")
+    rec = results['recommendations']
+    if rec['reasoning'] or rec['technical_requirements']:
+        lines.append("")
+        lines.append("Recommendations:")
+        for item in rec['reasoning'] + rec['technical_requirements']:
+            lines.append(f"  - {item}")
+    lines.append("")
+    lines.append("Full monthly az/el detail is in this run's data but not shown here --")
+    lines.append("use --json or --output <file>.json for the complete breakdown, or:")
+    lines.append("  python scripts/generate_polar_plots.py --profile <profile> --band "
+                  f"{results['band_mhz']}")
+    lines.append("for polar plots + a monthly conditions table.")
+    return "\n".join(lines)
+
+
 def main():
     """Command line interface"""
     import argparse
@@ -427,7 +478,13 @@ def main():
                                               'the 1st of the current month) -- pin this for '
                                               'reproducible results, since Moon geometry '
                                               'shifts slightly with the exact date range')
-    parser.add_argument('--output', help='Output JSON file')
+    parser.add_argument('--output', help='Save the full results as JSON to this file '
+                                          '(a short summary still prints to the terminal too)')
+    parser.add_argument('--json', action='store_true',
+                         help='Print the full results as JSON to the terminal instead of '
+                              'the human-readable summary (useful for piping into other '
+                              'tools, e.g. `| jq`). Implied automatically if --output is not '
+                              'given and stdout is not a terminal (e.g. when piped/redirected).')
 
     args = parser.parse_args()
 
@@ -493,8 +550,15 @@ def main():
         with open(args.output, 'w') as f:
             json.dump(results, f, indent=2, default=str)
         print(f"Results saved to {args.output}")
-    else:
+        print()
+        print(format_summary(results))
+    elif args.json or not sys.stdout.isatty():
+        # Explicit --json, or stdout is piped/redirected (e.g. `| jq`,
+        # `> file.json`) rather than an interactive terminal -- assume
+        # the full machine-readable dump is wanted, not the summary.
         print(json.dumps(results, indent=2, default=str))
+    else:
+        print(format_summary(results))
 
 
 if __name__ == "__main__":

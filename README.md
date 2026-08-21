@@ -46,6 +46,8 @@ python src/eme_calculator.py --grid FN12fr46 --band 1296
 ```
 The venv only needs creating once. Next time, just `cd` into the project and run `source venv/bin/activate` (or `venv\Scripts\activate` on Windows) again — the dependencies are already installed. Run `deactivate` when you're done. See [Virtual Environment Setup](#virtual-environment-setup) below for more detail, including why `venv/` and `.aws-sam/` never get committed.
 
+Running that last command in a real terminal prints a short human-readable summary (annual pass counts, wind loading, RF notes) — that's the calculator running an analysis and reporting back, not a bug. See [Reading the CLI output](#reading-the-cli-output) below for the other output modes.
+
 ### Analyzing a real site with a directional obstruction profile
 ```bash
 python src/eme_calculator.py \
@@ -53,6 +55,19 @@ python src/eme_calculator.py \
   --band 1296 --dish-diameter 2.4 --wind-speed 35 \
   --start-date 2026-01-01 --days 365
 ```
+This prints the same kind of summary as above, computed from the real obstruction-modeled site instead of a flat-horizon grid square. For the full monthly-by-region breakdown and the plots, use `scripts/generate_polar_plots.py` (see the [Case Study](#example-case-study-k2ua-station-fn12fr46wo) below) rather than trying to read it out of this command's output.
+
+### Reading the CLI output
+
+`src/eme_calculator.py` has three output modes:
+
+| You run it... | You get |
+|---|---|
+| Plainly, in a terminal (no `--output`/`--json`) | A short human-readable summary: pass counts per region, wind loading, RF notes |
+| With `--output results.json` | The summary printed to the terminal **and** the full results (including the monthly-by-region breakdown) saved as JSON to that file |
+| With `--json`, or piped/redirected (e.g. `... \| jq .`, `... > results.json`) | The full results as JSON on stdout, no summary |
+
+The full JSON is what `scripts/generate_polar_plots.py` consumes internally to build the plots and `docs/monthly_conditions.md` — you don't need to read it by hand unless you're scripting against it.
 
 ## Example Case Study: K2UA station, FN12fr46wo
 
@@ -296,6 +311,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 | 1.2.2 | 2026-08-18 | README revision |
 | **2.0.0** | **2026-08-20** | **Major revision.** Fixed a bug where `analyze_eme_opportunities()` counted every hourly sample within a region's azimuth window as a separate "pass," instead of one pass per calendar day — this let annual pass counts exceed 365 (physically impossible, the Moon rises once/day), which is what produced the case study's impossible 752 Caribbean / 499 South America / 617 Africa passes/year. Added `src/terrain.py`: direction-aware obstruction modeling combining operator-surveyed tree lines/clusters with a USGS EPQS-derived regional terrain floor, plus antenna-offset support for "what if I moved the dish" re-runs. Unified the minimum-usable-elevation threshold between `eme_calculator.py` and `rf_analysis.py` (previously two different hardcoded values, 10° flat vs. band-specific 5°-30°). Replaced the fictional FN12fr46 case study with the real K2UA station (FN12fr46wo), a full obstruction survey, USGS-sourced elevation, and corrected pass counts. Added polar az/el plots (`scripts/generate_polar_plots.py`, `docs/plots/`) and monthly peak-condition az/el tables (`docs/monthly_conditions.md`). Added `--start-date` for reproducible analysis windows. Added this Methodology & Limitations section and this Revision History. |
 | 2.0.1 | 2026-08-20 | Corrected the west hardwood treeline's modeled extent from a placeholder symmetric 300ft-each-way assumption to the operator's field estimate: an asymmetric row at least 800ft long, starting ~200ft north of the due-west line and running south. Added `along_line_start_ft`/`along_line_end_ft` support to `terrain.py` for asymmetric rows (kept `half_length_ft` working for symmetric ones, e.g. the east pine row). No region's annual pass count changed — see Methodology & Limitations. |
+| 2.0.2 | 2026-08-20 | Documentation only: local setup instructions (README Quick Start/Local Setup, DEPLOYMENT.md, PROJECT_STRUCTURE.md) now create and activate a Python virtual environment before `pip install`, instead of installing onto the system/Homebrew Python. Added a "Virtual Environment Setup" section to README.md. |
+| 2.0.3 | 2026-08-21 | `src/eme_calculator.py`'s CLI printed a large raw JSON dump to the terminal with no explanation of what it was, which read as broken rather than working as intended. Added `format_summary()` and made it the default terminal output (pass counts, wind loading, RF notes); the full JSON is now opt-in via `--json`, via `--output <file>` (which also still prints the summary), or automatically when stdout is piped/redirected rather than an interactive terminal. See [Reading the CLI Output](#reading-the-cli-output). |
 
 ## Acknowledgments
 
